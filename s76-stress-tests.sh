@@ -23,9 +23,10 @@ if [ ! -d ${HOME}/Documents/stress-scripts ]; then
         sudo apt full-upgrade -y --allow-downgrades
         pushd ${HOME}/Documents
             if [ ! -e stress-scripts ]; then
-                git clone https://git.kaulike.net/jacob/stress-scripts.git
+                git clone https://github.com/jacobktm/stress-scripts.git
                 pushd stress-scripts
                     git checkout main
+                    git submodule update --init --recursive --checkout
                     git reset --hard HEAD
                     git fetch --all
                     git pull

@@ -1,0 +1,555 @@
+<?xml version="1.0"?>
+<!--Phoronix Test Suite v10.8.4-->
+<PhoronixTestSuite>
+  <SuiteInformation>
+    <Title>cpu-medium</Title>
+    <Version>1.0.0</Version>
+    <TestType>Processor</TestType>
+    <Description>cpu benchmarking</Description>
+    <Maintainer>Jacob Kaulike</Maintainer>
+  </SuiteInformation>
+  <Execute>
+    <Test>pts/blosc-1.2.0</Test>
+    <Arguments>blosclz shuffle</Arguments>
+    <Description>Test: blosclz shuffle</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/blosc-1.2.0</Test>
+    <Arguments>blosclz bitshuffle</Arguments>
+    <Description>Test: blosclz bitshuffle</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/lczero-1.6.0</Test>
+    <Arguments>-b blas</Arguments>
+    <Description>Backend: BLAS</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/lzbench-1.1.1</Test>
+    <Arguments>-exz,0</Arguments>
+    <Description>Test: XZ 0 - Process: Compression</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/lzbench-1.1.1</Test>
+    <Arguments>-exz,0</Arguments>
+    <Description>Test: XZ 0 - Process: Decompression</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/lzbench-1.1.1</Test>
+    <Arguments>-ezstd,1</Arguments>
+    <Description>Test: Zstd 1 - Process: Compression</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/lzbench-1.1.1</Test>
+    <Arguments>-ezstd,1</Arguments>
+    <Description>Test: Zstd 1 - Process: Decompression</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/lzbench-1.1.1</Test>
+    <Arguments>-ezstd,8</Arguments>
+    <Description>Test: Zstd 8 - Process: Compression</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/lzbench-1.1.1</Test>
+    <Arguments>-ezstd,8</Arguments>
+    <Description>Test: Zstd 8 - Process: Decompression</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/lzbench-1.1.1</Test>
+    <Arguments>-ecrush,0</Arguments>
+    <Description>Test: Crush 0 - Process: Compression</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/lzbench-1.1.1</Test>
+    <Arguments>-ecrush,0</Arguments>
+    <Description>Test: Crush 0 - Process: Decompression</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/lzbench-1.1.1</Test>
+    <Arguments>-ebrotli,0</Arguments>
+    <Description>Test: Brotli 0 - Process: Compression</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/lzbench-1.1.1</Test>
+    <Arguments>-ebrotli,0</Arguments>
+    <Description>Test: Brotli 0 - Process: Decompression</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/lzbench-1.1.1</Test>
+    <Arguments>-ebrotli,2</Arguments>
+    <Description>Test: Brotli 2 - Process: Compression</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/lzbench-1.1.1</Test>
+    <Arguments>-ebrotli,2</Arguments>
+    <Description>Test: Brotli 2 - Process: Decompression</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/lzbench-1.1.1</Test>
+    <Arguments>-elibdeflate,1</Arguments>
+    <Description>Test: Libdeflate 1 - Process: Compression</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/lzbench-1.1.1</Test>
+    <Arguments>-elibdeflate,1</Arguments>
+    <Description>Test: Libdeflate 1 - Process: Decompression</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/compress-lz4-1.0.0</Test>
+    <Arguments>-b1 -e1</Arguments>
+    <Description>Compression Level: 1 - Compression Speed</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/compress-lz4-1.0.0</Test>
+    <Arguments>-b1 -e1</Arguments>
+    <Description>Compression Level: 1 - Decompression Speed</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/compress-lz4-1.0.0</Test>
+    <Arguments>-b3 -e3</Arguments>
+    <Description>Compression Level: 3 - Compression Speed</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/compress-lz4-1.0.0</Test>
+    <Arguments>-b3 -e3</Arguments>
+    <Description>Compression Level: 3 - Decompression Speed</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/compress-lz4-1.0.0</Test>
+    <Arguments>-b9 -e9</Arguments>
+    <Description>Compression Level: 9 - Compression Speed</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/compress-lz4-1.0.0</Test>
+    <Arguments>-b9 -e9</Arguments>
+    <Description>Compression Level: 9 - Decompression Speed</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/compress-zstd-1.6.0</Test>
+    <Arguments>-b3</Arguments>
+    <Description>Compression Level: 3 - Compression Speed</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/compress-zstd-1.6.0</Test>
+    <Arguments>-b3</Arguments>
+    <Description>Compression Level: 3 - Decompression Speed</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/compress-zstd-1.6.0</Test>
+    <Arguments>-b8</Arguments>
+    <Description>Compression Level: 8 - Compression Speed</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/compress-zstd-1.6.0</Test>
+    <Arguments>-b8</Arguments>
+    <Description>Compression Level: 8 - Decompression Speed</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/compress-zstd-1.6.0</Test>
+    <Arguments>-b12</Arguments>
+    <Description>Compression Level: 12 - Compression Speed</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/compress-zstd-1.6.0</Test>
+    <Arguments>-b12</Arguments>
+    <Description>Compression Level: 12 - Decompression Speed</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/compress-zstd-1.6.0</Test>
+    <Arguments>-b19</Arguments>
+    <Description>Compression Level: 19 - Compression Speed</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/compress-zstd-1.6.0</Test>
+    <Arguments>-b19</Arguments>
+    <Description>Compression Level: 19 - Decompression Speed</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/compress-zstd-1.6.0</Test>
+    <Arguments>-b3 --long</Arguments>
+    <Description>Compression Level: 3, Long Mode - Compression Speed</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/compress-zstd-1.6.0</Test>
+    <Arguments>-b3 --long</Arguments>
+    <Description>Compression Level: 3, Long Mode - Decompression Speed</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/compress-zstd-1.6.0</Test>
+    <Arguments>-b8 --long</Arguments>
+    <Description>Compression Level: 8, Long Mode - Compression Speed</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/compress-zstd-1.6.0</Test>
+    <Arguments>-b8 --long</Arguments>
+    <Description>Compression Level: 8, Long Mode - Decompression Speed</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/compress-zstd-1.6.0</Test>
+    <Arguments>-b19 --long</Arguments>
+    <Description>Compression Level: 19, Long Mode - Compression Speed</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/compress-zstd-1.6.0</Test>
+    <Arguments>-b19 --long</Arguments>
+    <Description>Compression Level: 19, Long Mode - Decompression Speed</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/crafty-1.4.5</Test>
+    <Description>Elapsed Time</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/tscp-1.2.2</Test>
+    <Description>AI Chess Performance</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/compress-7zip-1.10.0</Test>
+    <Description>Test: Compression Rating</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/compress-7zip-1.10.0</Test>
+    <Description>Test: Decompression Rating</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/stockfish-1.4.0</Test>
+    <Description>Total Time</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/asmfish-1.1.2</Test>
+    <Description>1024 Hash Memory, 26 Depth</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/build-apache-1.6.1</Test>
+    <Description>Time To Compile</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/build-ffmpeg-6.0.0</Test>
+    <Description>Time To Compile</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/build-gcc-1.3.0</Test>
+    <Description>Time To Compile</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/build-gdb-1.1.0</Test>
+    <Description>Time To Compile</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/build-gem5-1.0.0</Test>
+    <Description>Time To Compile</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/build-godot-4.0.0</Test>
+    <Description>Time To Compile</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/build-imagemagick-1.7.2</Test>
+    <Description>Time To Compile</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/build-linux-kernel-1.15.0</Test>
+    <Arguments>defconfig</Arguments>
+    <Description>Build: defconfig</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/build-linux-kernel-1.15.0</Test>
+    <Arguments>allmodconfig</Arguments>
+    <Description>Build: allmodconfig</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/build-llvm-1.5.0</Test>
+    <Arguments>Ninja</Arguments>
+    <Description>Build System: Ninja</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/build-llvm-1.5.0</Test>
+    <Description>Build System: Unix Makefiles</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/build-mplayer-1.5.0</Test>
+    <Description>Time To Compile</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/build-php-1.6.0</Test>
+    <Description>Time To Compile</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/build-python-1.0.0</Test>
+    <Description>Build Configuration: Default</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/build-python-1.0.0</Test>
+    <Arguments>--enable-optimizations --with-lto</Arguments>
+    <Description>Build Configuration: Released Build, PGO + LTO Optimized</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/build2-1.2.0</Test>
+    <Description>Time To Compile</Description>
+  </Execute>
+  <Execute>
+    <Test>local/compress-pbzip2-1.7.0</Test>
+    <Description>FreeBSD-13.1-RELEASE-amd64-memstick.img Compression</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/build-eigen-1.1.0</Test>
+    <Description>Time To Compile</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/build-erlang-1.2.0</Test>
+    <Description>Time To Compile</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/build-wasmer-1.2.0</Test>
+    <Description>Time To Compile</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/compress-gzip-1.2.0</Test>
+    <Description>Linux Source Tree Archiving To .tar.gz</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/compress-xz-1.1.0</Test>
+    <Description>Compressing ubuntu-16.04.3-server-i386.img, Compression Level 9</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/hackbench-1.0.0</Test>
+    <Arguments>1 thread</Arguments>
+    <Description>Count: 1 - Type: Thread</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/hackbench-1.0.0</Test>
+    <Arguments>2 thread</Arguments>
+    <Description>Count: 2 - Type: Thread</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/hackbench-1.0.0</Test>
+    <Arguments>4 thread</Arguments>
+    <Description>Count: 4 - Type: Thread</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/hackbench-1.0.0</Test>
+    <Arguments>8 thread</Arguments>
+    <Description>Count: 8 - Type: Thread</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/hackbench-1.0.0</Test>
+    <Arguments>1 process</Arguments>
+    <Description>Count: 1 - Type: Process</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/hackbench-1.0.0</Test>
+    <Arguments>16 thread</Arguments>
+    <Description>Count: 16 - Type: Thread</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/hackbench-1.0.0</Test>
+    <Arguments>2 process</Arguments>
+    <Description>Count: 2 - Type: Process</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/hackbench-1.0.0</Test>
+    <Arguments>4 process</Arguments>
+    <Description>Count: 4 - Type: Process</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/hackbench-1.0.0</Test>
+    <Arguments>8 process</Arguments>
+    <Description>Count: 8 - Type: Process</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/hackbench-1.0.0</Test>
+    <Arguments>16 process</Arguments>
+    <Description>Count: 16 - Type: Process</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/hackbench-1.0.0</Test>
+    <Arguments>32 process</Arguments>
+    <Description>Count: 32 - Type: Process</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/m-queens-1.1.0</Test>
+    <Description>Time To Solve</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/n-queens-1.2.1</Test>
+    <Description>Elapsed Time</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/system-decompress-xz-1.0.2</Test>
+  </Execute>
+  <Execute>
+    <Test>pts/system-decompress-zlib-1.0.2</Test>
+  </Execute>
+  <Execute>
+    <Test>pts/openssl-3.1.0</Test>
+    <Arguments>sha256</Arguments>
+    <Description>Algorithm: SHA256</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/openssl-3.1.0</Test>
+    <Arguments>sha512</Arguments>
+    <Description>Algorithm: SHA512</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/openssl-3.1.0</Test>
+    <Arguments>rsa4096</Arguments>
+    <Description>Algorithm: RSA4096</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/openssl-3.1.0</Test>
+    <Arguments>-evp chacha20</Arguments>
+    <Description>Algorithm: ChaCha20</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/openssl-3.1.0</Test>
+    <Arguments>-evp aes-128-gcm</Arguments>
+    <Description>Algorithm: AES-128-GCM</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/openssl-3.1.0</Test>
+    <Arguments>-evp aes-256-gcm</Arguments>
+    <Description>Algorithm: AES-256-GCM</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/openssl-3.1.0</Test>
+    <Arguments>-evp chacha20-poly1305</Arguments>
+    <Description>Algorithm: ChaCha20-Poly1305</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/stress-ng-1.9.0</Test>
+    <Arguments>--hash -1 --no-rand-seed</Arguments>
+    <Description>Test: Hash</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/stress-ng-1.9.0</Test>
+    <Arguments>--mmap -1 --no-rand-seed</Arguments>
+    <Description>Test: MMAP</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/stress-ng-1.9.0</Test>
+    <Arguments>--numa -1 --no-rand-seed</Arguments>
+    <Description>Test: NUMA</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/stress-ng-1.9.0</Test>
+    <Arguments>--poll -1 --no-rand-seed</Arguments>
+    <Description>Test: Poll</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/stress-ng-1.9.0</Test>
+    <Arguments>--zlib -1 --no-rand-seed</Arguments>
+    <Description>Test: Zlib</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/stress-ng-1.9.0</Test>
+    <Arguments>--futex -1 --no-rand-seed</Arguments>
+    <Description>Test: Futex</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/stress-ng-1.9.0</Test>
+    <Arguments>--memfd -1 --no-rand-seed</Arguments>
+    <Description>Test: MEMFD</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/stress-ng-1.9.0</Test>
+    <Arguments>--mutex -1 --no-rand-seed</Arguments>
+    <Description>Test: Mutex</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/stress-ng-1.9.0</Test>
+    <Arguments>--atomic -1 --no-rand-seed</Arguments>
+    <Description>Test: Atomic</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/stress-ng-1.9.0</Test>
+    <Arguments>--crypt -1 --no-rand-seed</Arguments>
+    <Description>Test: Crypto</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/stress-ng-1.9.0</Test>
+    <Arguments>--malloc -1 --no-rand-seed</Arguments>
+    <Description>Test: Malloc</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/stress-ng-1.9.0</Test>
+    <Arguments>--fork -1 --no-rand-seed</Arguments>
+    <Description>Test: Forking</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/stress-ng-1.9.0</Test>
+    <Arguments>--pthread -1 --no-rand-seed</Arguments>
+    <Description>Test: Pthread</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/stress-ng-1.9.0</Test>
+    <Arguments>--io-uring -1 --no-rand-seed</Arguments>
+    <Description>Test: IO_uring</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/stress-ng-1.9.0</Test>
+    <Arguments>--sendfile -1 --no-rand-seed</Arguments>
+    <Description>Test: SENDFILE</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/stress-ng-1.9.0</Test>
+    <Arguments>--cache -1 --no-rand-seed</Arguments>
+    <Description>Test: CPU Cache</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/stress-ng-1.9.0</Test>
+    <Arguments>--cpu -1 --cpu-method all --no-rand-seed</Arguments>
+    <Description>Test: CPU Stress</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/stress-ng-1.9.0</Test>
+    <Arguments>--sem -1 --no-rand-seed</Arguments>
+    <Description>Test: Semaphores</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/stress-ng-1.9.0</Test>
+    <Arguments>--matrix -1 --no-rand-seed</Arguments>
+    <Description>Test: Matrix Math</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/stress-ng-1.9.0</Test>
+    <Arguments>--vecmath -1 --no-rand-seed</Arguments>
+    <Description>Test: Vector Math</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/stress-ng-1.9.0</Test>
+    <Arguments>--funccall -1 --no-rand-seed</Arguments>
+    <Description>Test: Function Call</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/stress-ng-1.9.0</Test>
+    <Arguments>--memcpy -1 --no-rand-seed</Arguments>
+    <Description>Test: Memory Copying</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/stress-ng-1.9.0</Test>
+    <Arguments>--sock -1 --no-rand-seed --sock-zerocopy</Arguments>
+    <Description>Test: Socket Activity</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/stress-ng-1.9.0</Test>
+    <Arguments>--switch -1 --no-rand-seed</Arguments>
+    <Description>Test: Context Switching</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/stress-ng-1.9.0</Test>
+    <Arguments>--str -1 --no-rand-seed</Arguments>
+    <Description>Test: Glibc C String Functions</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/stress-ng-1.9.0</Test>
+    <Arguments>--qsort -1 --no-rand-seed</Arguments>
+    <Description>Test: Glibc Qsort Data Sorting</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/stress-ng-1.9.0</Test>
+    <Arguments>--msg -1 --no-rand-seed</Arguments>
+    <Description>Test: System V Message Passing</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/ctx-clock-1.0.0</Test>
+    <Description>Context Switch Time</Description>
+  </Execute>
+</PhoronixTestSuite>

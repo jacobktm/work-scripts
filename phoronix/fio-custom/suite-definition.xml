@@ -1,0 +1,971 @@
+<?xml version="1.0"?>
+<!--Phoronix Test Suite v10.8.4-->
+<PhoronixTestSuite>
+  <SuiteInformation>
+    <Title>fio-custom</Title>
+    <Version>1.0.0</Version>
+    <TestType>Disk</TestType>
+    <Description>benchmark disk</Description>
+    <Maintainer>Jacob Kaulike</Maintainer>
+  </SuiteInformation>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>randread libaio 0 0 1m /media/system76/test</Arguments>
+    <Description>Type: Random Read - Engine: Linux AIO - Buffered: No - Direct: No - Block Size: 1MB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>randread libaio 0 0 2m /media/system76/test</Arguments>
+    <Description>Type: Random Read - Engine: Linux AIO - Buffered: No - Direct: No - Block Size: 2MB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>randread libaio 0 0 4k /media/system76/test</Arguments>
+    <Description>Type: Random Read - Engine: Linux AIO - Buffered: No - Direct: No - Block Size: 4KB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>randread libaio 0 0 4m /media/system76/test</Arguments>
+    <Description>Type: Random Read - Engine: Linux AIO - Buffered: No - Direct: No - Block Size: 4MB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>randread libaio 0 0 8k /media/system76/test</Arguments>
+    <Description>Type: Random Read - Engine: Linux AIO - Buffered: No - Direct: No - Block Size: 8KB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>randread libaio 0 0 8m /media/system76/test</Arguments>
+    <Description>Type: Random Read - Engine: Linux AIO - Buffered: No - Direct: No - Block Size: 8MB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>randread libaio 0 0 16k /media/system76/test</Arguments>
+    <Description>Type: Random Read - Engine: Linux AIO - Buffered: No - Direct: No - Block Size: 16KB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>randread libaio 0 0 32k /media/system76/test</Arguments>
+    <Description>Type: Random Read - Engine: Linux AIO - Buffered: No - Direct: No - Block Size: 32KB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>randread libaio 0 0 64k /media/system76/test</Arguments>
+    <Description>Type: Random Read - Engine: Linux AIO - Buffered: No - Direct: No - Block Size: 64KB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>randread libaio 0 1 1m /media/system76/test</Arguments>
+    <Description>Type: Random Read - Engine: Linux AIO - Buffered: No - Direct: Yes - Block Size: 1MB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>randread libaio 0 1 2m /media/system76/test</Arguments>
+    <Description>Type: Random Read - Engine: Linux AIO - Buffered: No - Direct: Yes - Block Size: 2MB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>randread libaio 0 1 4k /media/system76/test</Arguments>
+    <Description>Type: Random Read - Engine: Linux AIO - Buffered: No - Direct: Yes - Block Size: 4KB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>randread libaio 0 1 4m /media/system76/test</Arguments>
+    <Description>Type: Random Read - Engine: Linux AIO - Buffered: No - Direct: Yes - Block Size: 4MB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>randread libaio 0 1 8k /media/system76/test</Arguments>
+    <Description>Type: Random Read - Engine: Linux AIO - Buffered: No - Direct: Yes - Block Size: 8KB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>randread libaio 0 1 8m /media/system76/test</Arguments>
+    <Description>Type: Random Read - Engine: Linux AIO - Buffered: No - Direct: Yes - Block Size: 8MB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>randread libaio 1 0 1m /media/system76/test</Arguments>
+    <Description>Type: Random Read - Engine: Linux AIO - Buffered: Yes - Direct: No - Block Size: 1MB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>randread libaio 1 0 2m /media/system76/test</Arguments>
+    <Description>Type: Random Read - Engine: Linux AIO - Buffered: Yes - Direct: No - Block Size: 2MB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>randread libaio 1 0 4k /media/system76/test</Arguments>
+    <Description>Type: Random Read - Engine: Linux AIO - Buffered: Yes - Direct: No - Block Size: 4KB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>randread libaio 1 0 4m /media/system76/test</Arguments>
+    <Description>Type: Random Read - Engine: Linux AIO - Buffered: Yes - Direct: No - Block Size: 4MB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>randread libaio 1 0 8k /media/system76/test</Arguments>
+    <Description>Type: Random Read - Engine: Linux AIO - Buffered: Yes - Direct: No - Block Size: 8KB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>randread libaio 1 0 8m /media/system76/test</Arguments>
+    <Description>Type: Random Read - Engine: Linux AIO - Buffered: Yes - Direct: No - Block Size: 8MB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>randwrite libaio 0 0 1m /media/system76/test</Arguments>
+    <Description>Type: Random Write - Engine: Linux AIO - Buffered: No - Direct: No - Block Size: 1MB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>randwrite libaio 0 0 2m /media/system76/test</Arguments>
+    <Description>Type: Random Write - Engine: Linux AIO - Buffered: No - Direct: No - Block Size: 2MB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>randwrite libaio 0 0 4k /media/system76/test</Arguments>
+    <Description>Type: Random Write - Engine: Linux AIO - Buffered: No - Direct: No - Block Size: 4KB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>randwrite libaio 0 0 4m /media/system76/test</Arguments>
+    <Description>Type: Random Write - Engine: Linux AIO - Buffered: No - Direct: No - Block Size: 4MB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>randwrite libaio 0 0 8k /media/system76/test</Arguments>
+    <Description>Type: Random Write - Engine: Linux AIO - Buffered: No - Direct: No - Block Size: 8KB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>randwrite libaio 0 0 8m /media/system76/test</Arguments>
+    <Description>Type: Random Write - Engine: Linux AIO - Buffered: No - Direct: No - Block Size: 8MB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>randread libaio 0 0 128k /media/system76/test</Arguments>
+    <Description>Type: Random Read - Engine: Linux AIO - Buffered: No - Direct: No - Block Size: 128KB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>randread libaio 0 0 256k /media/system76/test</Arguments>
+    <Description>Type: Random Read - Engine: Linux AIO - Buffered: No - Direct: No - Block Size: 256KB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>randread libaio 0 0 512k /media/system76/test</Arguments>
+    <Description>Type: Random Read - Engine: Linux AIO - Buffered: No - Direct: No - Block Size: 512KB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>randread libaio 0 1 16k /media/system76/test</Arguments>
+    <Description>Type: Random Read - Engine: Linux AIO - Buffered: No - Direct: Yes - Block Size: 16KB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>randread libaio 0 1 32k /media/system76/test</Arguments>
+    <Description>Type: Random Read - Engine: Linux AIO - Buffered: No - Direct: Yes - Block Size: 32KB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>randread libaio 0 1 64k /media/system76/test</Arguments>
+    <Description>Type: Random Read - Engine: Linux AIO - Buffered: No - Direct: Yes - Block Size: 64KB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>randread libaio 1 0 16k /media/system76/test</Arguments>
+    <Description>Type: Random Read - Engine: Linux AIO - Buffered: Yes - Direct: No - Block Size: 16KB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>randread libaio 1 0 32k /media/system76/test</Arguments>
+    <Description>Type: Random Read - Engine: Linux AIO - Buffered: Yes - Direct: No - Block Size: 32KB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>randread libaio 1 0 64k /media/system76/test</Arguments>
+    <Description>Type: Random Read - Engine: Linux AIO - Buffered: Yes - Direct: No - Block Size: 64KB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>randread libaio 1 1 1m /media/system76/test</Arguments>
+    <Description>Type: Random Read - Engine: Linux AIO - Buffered: Yes - Direct: Yes - Block Size: 1MB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>randread libaio 1 1 2m /media/system76/test</Arguments>
+    <Description>Type: Random Read - Engine: Linux AIO - Buffered: Yes - Direct: Yes - Block Size: 2MB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>randread libaio 1 1 4k /media/system76/test</Arguments>
+    <Description>Type: Random Read - Engine: Linux AIO - Buffered: Yes - Direct: Yes - Block Size: 4KB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>randread libaio 1 1 4m /media/system76/test</Arguments>
+    <Description>Type: Random Read - Engine: Linux AIO - Buffered: Yes - Direct: Yes - Block Size: 4MB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>randread libaio 1 1 8k /media/system76/test</Arguments>
+    <Description>Type: Random Read - Engine: Linux AIO - Buffered: Yes - Direct: Yes - Block Size: 8KB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>randread libaio 1 1 8m /media/system76/test</Arguments>
+    <Description>Type: Random Read - Engine: Linux AIO - Buffered: Yes - Direct: Yes - Block Size: 8MB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>randwrite libaio 0 0 16k /media/system76/test</Arguments>
+    <Description>Type: Random Write - Engine: Linux AIO - Buffered: No - Direct: No - Block Size: 16KB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>randwrite libaio 0 0 32k /media/system76/test</Arguments>
+    <Description>Type: Random Write - Engine: Linux AIO - Buffered: No - Direct: No - Block Size: 32KB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>randwrite libaio 0 0 64k /media/system76/test</Arguments>
+    <Description>Type: Random Write - Engine: Linux AIO - Buffered: No - Direct: No - Block Size: 64KB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>randwrite libaio 0 1 1m /media/system76/test</Arguments>
+    <Description>Type: Random Write - Engine: Linux AIO - Buffered: No - Direct: Yes - Block Size: 1MB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>randwrite libaio 0 1 2m /media/system76/test</Arguments>
+    <Description>Type: Random Write - Engine: Linux AIO - Buffered: No - Direct: Yes - Block Size: 2MB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>randwrite libaio 0 1 4k /media/system76/test</Arguments>
+    <Description>Type: Random Write - Engine: Linux AIO - Buffered: No - Direct: Yes - Block Size: 4KB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>randwrite libaio 0 1 4m /media/system76/test</Arguments>
+    <Description>Type: Random Write - Engine: Linux AIO - Buffered: No - Direct: Yes - Block Size: 4MB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>randwrite libaio 0 1 8k /media/system76/test</Arguments>
+    <Description>Type: Random Write - Engine: Linux AIO - Buffered: No - Direct: Yes - Block Size: 8KB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>randwrite libaio 0 1 8m /media/system76/test</Arguments>
+    <Description>Type: Random Write - Engine: Linux AIO - Buffered: No - Direct: Yes - Block Size: 8MB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>randwrite libaio 1 0 1m /media/system76/test</Arguments>
+    <Description>Type: Random Write - Engine: Linux AIO - Buffered: Yes - Direct: No - Block Size: 1MB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>randwrite libaio 1 0 2m /media/system76/test</Arguments>
+    <Description>Type: Random Write - Engine: Linux AIO - Buffered: Yes - Direct: No - Block Size: 2MB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>randwrite libaio 1 0 4k /media/system76/test</Arguments>
+    <Description>Type: Random Write - Engine: Linux AIO - Buffered: Yes - Direct: No - Block Size: 4KB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>randwrite libaio 1 0 4m /media/system76/test</Arguments>
+    <Description>Type: Random Write - Engine: Linux AIO - Buffered: Yes - Direct: No - Block Size: 4MB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>randwrite libaio 1 0 8k /media/system76/test</Arguments>
+    <Description>Type: Random Write - Engine: Linux AIO - Buffered: Yes - Direct: No - Block Size: 8KB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>randwrite libaio 1 0 8m /media/system76/test</Arguments>
+    <Description>Type: Random Write - Engine: Linux AIO - Buffered: Yes - Direct: No - Block Size: 8MB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>randread libaio 0 1 128k /media/system76/test</Arguments>
+    <Description>Type: Random Read - Engine: Linux AIO - Buffered: No - Direct: Yes - Block Size: 128KB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>randread libaio 0 1 256k /media/system76/test</Arguments>
+    <Description>Type: Random Read - Engine: Linux AIO - Buffered: No - Direct: Yes - Block Size: 256KB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>randread libaio 0 1 512k /media/system76/test</Arguments>
+    <Description>Type: Random Read - Engine: Linux AIO - Buffered: No - Direct: Yes - Block Size: 512KB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>randread libaio 1 0 128k /media/system76/test</Arguments>
+    <Description>Type: Random Read - Engine: Linux AIO - Buffered: Yes - Direct: No - Block Size: 128KB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>randread libaio 1 0 256k /media/system76/test</Arguments>
+    <Description>Type: Random Read - Engine: Linux AIO - Buffered: Yes - Direct: No - Block Size: 256KB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>randread libaio 1 0 512k /media/system76/test</Arguments>
+    <Description>Type: Random Read - Engine: Linux AIO - Buffered: Yes - Direct: No - Block Size: 512KB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>randread libaio 1 1 16k /media/system76/test</Arguments>
+    <Description>Type: Random Read - Engine: Linux AIO - Buffered: Yes - Direct: Yes - Block Size: 16KB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>randread libaio 1 1 32k /media/system76/test</Arguments>
+    <Description>Type: Random Read - Engine: Linux AIO - Buffered: Yes - Direct: Yes - Block Size: 32KB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>randread libaio 1 1 64k /media/system76/test</Arguments>
+    <Description>Type: Random Read - Engine: Linux AIO - Buffered: Yes - Direct: Yes - Block Size: 64KB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>randwrite libaio 0 0 128k /media/system76/test</Arguments>
+    <Description>Type: Random Write - Engine: Linux AIO - Buffered: No - Direct: No - Block Size: 128KB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>randwrite libaio 0 0 256k /media/system76/test</Arguments>
+    <Description>Type: Random Write - Engine: Linux AIO - Buffered: No - Direct: No - Block Size: 256KB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>randwrite libaio 0 0 512k /media/system76/test</Arguments>
+    <Description>Type: Random Write - Engine: Linux AIO - Buffered: No - Direct: No - Block Size: 512KB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>randwrite libaio 0 1 16k /media/system76/test</Arguments>
+    <Description>Type: Random Write - Engine: Linux AIO - Buffered: No - Direct: Yes - Block Size: 16KB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>randwrite libaio 0 1 32k /media/system76/test</Arguments>
+    <Description>Type: Random Write - Engine: Linux AIO - Buffered: No - Direct: Yes - Block Size: 32KB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>randwrite libaio 0 1 64k /media/system76/test</Arguments>
+    <Description>Type: Random Write - Engine: Linux AIO - Buffered: No - Direct: Yes - Block Size: 64KB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>randwrite libaio 1 0 16k /media/system76/test</Arguments>
+    <Description>Type: Random Write - Engine: Linux AIO - Buffered: Yes - Direct: No - Block Size: 16KB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>randwrite libaio 1 0 32k /media/system76/test</Arguments>
+    <Description>Type: Random Write - Engine: Linux AIO - Buffered: Yes - Direct: No - Block Size: 32KB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>randwrite libaio 1 0 64k /media/system76/test</Arguments>
+    <Description>Type: Random Write - Engine: Linux AIO - Buffered: Yes - Direct: No - Block Size: 64KB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>randwrite libaio 1 1 1m /media/system76/test</Arguments>
+    <Description>Type: Random Write - Engine: Linux AIO - Buffered: Yes - Direct: Yes - Block Size: 1MB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>randwrite libaio 1 1 2m /media/system76/test</Arguments>
+    <Description>Type: Random Write - Engine: Linux AIO - Buffered: Yes - Direct: Yes - Block Size: 2MB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>randwrite libaio 1 1 4k /media/system76/test</Arguments>
+    <Description>Type: Random Write - Engine: Linux AIO - Buffered: Yes - Direct: Yes - Block Size: 4KB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>randwrite libaio 1 1 4m /media/system76/test</Arguments>
+    <Description>Type: Random Write - Engine: Linux AIO - Buffered: Yes - Direct: Yes - Block Size: 4MB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>randwrite libaio 1 1 8k /media/system76/test</Arguments>
+    <Description>Type: Random Write - Engine: Linux AIO - Buffered: Yes - Direct: Yes - Block Size: 8KB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>randwrite libaio 1 1 8m /media/system76/test</Arguments>
+    <Description>Type: Random Write - Engine: Linux AIO - Buffered: Yes - Direct: Yes - Block Size: 8MB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>randread libaio 1 1 128k /media/system76/test</Arguments>
+    <Description>Type: Random Read - Engine: Linux AIO - Buffered: Yes - Direct: Yes - Block Size: 128KB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>randread libaio 1 1 256k /media/system76/test</Arguments>
+    <Description>Type: Random Read - Engine: Linux AIO - Buffered: Yes - Direct: Yes - Block Size: 256KB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>randread libaio 1 1 512k /media/system76/test</Arguments>
+    <Description>Type: Random Read - Engine: Linux AIO - Buffered: Yes - Direct: Yes - Block Size: 512KB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>randwrite libaio 0 1 128k /media/system76/test</Arguments>
+    <Description>Type: Random Write - Engine: Linux AIO - Buffered: No - Direct: Yes - Block Size: 128KB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>randwrite libaio 0 1 256k /media/system76/test</Arguments>
+    <Description>Type: Random Write - Engine: Linux AIO - Buffered: No - Direct: Yes - Block Size: 256KB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>randwrite libaio 0 1 512k /media/system76/test</Arguments>
+    <Description>Type: Random Write - Engine: Linux AIO - Buffered: No - Direct: Yes - Block Size: 512KB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>randwrite libaio 1 0 128k /media/system76/test</Arguments>
+    <Description>Type: Random Write - Engine: Linux AIO - Buffered: Yes - Direct: No - Block Size: 128KB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>randwrite libaio 1 0 256k /media/system76/test</Arguments>
+    <Description>Type: Random Write - Engine: Linux AIO - Buffered: Yes - Direct: No - Block Size: 256KB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>randwrite libaio 1 0 512k /media/system76/test</Arguments>
+    <Description>Type: Random Write - Engine: Linux AIO - Buffered: Yes - Direct: No - Block Size: 512KB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>randwrite libaio 1 1 16k /media/system76/test</Arguments>
+    <Description>Type: Random Write - Engine: Linux AIO - Buffered: Yes - Direct: Yes - Block Size: 16KB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>randwrite libaio 1 1 32k /media/system76/test</Arguments>
+    <Description>Type: Random Write - Engine: Linux AIO - Buffered: Yes - Direct: Yes - Block Size: 32KB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>randwrite libaio 1 1 64k /media/system76/test</Arguments>
+    <Description>Type: Random Write - Engine: Linux AIO - Buffered: Yes - Direct: Yes - Block Size: 64KB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>read libaio 0 0 1m /media/system76/test</Arguments>
+    <Description>Type: Sequential Read - Engine: Linux AIO - Buffered: No - Direct: No - Block Size: 1MB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>read libaio 0 0 2m /media/system76/test</Arguments>
+    <Description>Type: Sequential Read - Engine: Linux AIO - Buffered: No - Direct: No - Block Size: 2MB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>read libaio 0 0 4k /media/system76/test</Arguments>
+    <Description>Type: Sequential Read - Engine: Linux AIO - Buffered: No - Direct: No - Block Size: 4KB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>read libaio 0 0 4m /media/system76/test</Arguments>
+    <Description>Type: Sequential Read - Engine: Linux AIO - Buffered: No - Direct: No - Block Size: 4MB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>read libaio 0 0 8k /media/system76/test</Arguments>
+    <Description>Type: Sequential Read - Engine: Linux AIO - Buffered: No - Direct: No - Block Size: 8KB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>read libaio 0 0 8m /media/system76/test</Arguments>
+    <Description>Type: Sequential Read - Engine: Linux AIO - Buffered: No - Direct: No - Block Size: 8MB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>randwrite libaio 1 1 128k /media/system76/test</Arguments>
+    <Description>Type: Random Write - Engine: Linux AIO - Buffered: Yes - Direct: Yes - Block Size: 128KB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>randwrite libaio 1 1 256k /media/system76/test</Arguments>
+    <Description>Type: Random Write - Engine: Linux AIO - Buffered: Yes - Direct: Yes - Block Size: 256KB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>randwrite libaio 1 1 512k /media/system76/test</Arguments>
+    <Description>Type: Random Write - Engine: Linux AIO - Buffered: Yes - Direct: Yes - Block Size: 512KB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>read libaio 0 0 16k /media/system76/test</Arguments>
+    <Description>Type: Sequential Read - Engine: Linux AIO - Buffered: No - Direct: No - Block Size: 16KB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>read libaio 0 0 32k /media/system76/test</Arguments>
+    <Description>Type: Sequential Read - Engine: Linux AIO - Buffered: No - Direct: No - Block Size: 32KB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>read libaio 0 0 64k /media/system76/test</Arguments>
+    <Description>Type: Sequential Read - Engine: Linux AIO - Buffered: No - Direct: No - Block Size: 64KB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>read libaio 0 1 1m /media/system76/test</Arguments>
+    <Description>Type: Sequential Read - Engine: Linux AIO - Buffered: No - Direct: Yes - Block Size: 1MB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>read libaio 0 1 2m /media/system76/test</Arguments>
+    <Description>Type: Sequential Read - Engine: Linux AIO - Buffered: No - Direct: Yes - Block Size: 2MB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>read libaio 0 1 4k /media/system76/test</Arguments>
+    <Description>Type: Sequential Read - Engine: Linux AIO - Buffered: No - Direct: Yes - Block Size: 4KB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>read libaio 0 1 4m /media/system76/test</Arguments>
+    <Description>Type: Sequential Read - Engine: Linux AIO - Buffered: No - Direct: Yes - Block Size: 4MB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>read libaio 0 1 8k /media/system76/test</Arguments>
+    <Description>Type: Sequential Read - Engine: Linux AIO - Buffered: No - Direct: Yes - Block Size: 8KB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>read libaio 0 1 8m /media/system76/test</Arguments>
+    <Description>Type: Sequential Read - Engine: Linux AIO - Buffered: No - Direct: Yes - Block Size: 8MB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>read libaio 1 0 1m /media/system76/test</Arguments>
+    <Description>Type: Sequential Read - Engine: Linux AIO - Buffered: Yes - Direct: No - Block Size: 1MB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>read libaio 1 0 2m /media/system76/test</Arguments>
+    <Description>Type: Sequential Read - Engine: Linux AIO - Buffered: Yes - Direct: No - Block Size: 2MB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>read libaio 1 0 4k /media/system76/test</Arguments>
+    <Description>Type: Sequential Read - Engine: Linux AIO - Buffered: Yes - Direct: No - Block Size: 4KB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>read libaio 1 0 4m /media/system76/test</Arguments>
+    <Description>Type: Sequential Read - Engine: Linux AIO - Buffered: Yes - Direct: No - Block Size: 4MB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>read libaio 1 0 8k /media/system76/test</Arguments>
+    <Description>Type: Sequential Read - Engine: Linux AIO - Buffered: Yes - Direct: No - Block Size: 8KB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>read libaio 1 0 8m /media/system76/test</Arguments>
+    <Description>Type: Sequential Read - Engine: Linux AIO - Buffered: Yes - Direct: No - Block Size: 8MB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>write libaio 0 0 1m /media/system76/test</Arguments>
+    <Description>Type: Sequential Write - Engine: Linux AIO - Buffered: No - Direct: No - Block Size: 1MB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>write libaio 0 0 2m /media/system76/test</Arguments>
+    <Description>Type: Sequential Write - Engine: Linux AIO - Buffered: No - Direct: No - Block Size: 2MB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>write libaio 0 0 4k /media/system76/test</Arguments>
+    <Description>Type: Sequential Write - Engine: Linux AIO - Buffered: No - Direct: No - Block Size: 4KB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>write libaio 0 0 4m /media/system76/test</Arguments>
+    <Description>Type: Sequential Write - Engine: Linux AIO - Buffered: No - Direct: No - Block Size: 4MB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>write libaio 0 0 8k /media/system76/test</Arguments>
+    <Description>Type: Sequential Write - Engine: Linux AIO - Buffered: No - Direct: No - Block Size: 8KB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>write libaio 0 0 8m /media/system76/test</Arguments>
+    <Description>Type: Sequential Write - Engine: Linux AIO - Buffered: No - Direct: No - Block Size: 8MB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>read libaio 0 0 128k /media/system76/test</Arguments>
+    <Description>Type: Sequential Read - Engine: Linux AIO - Buffered: No - Direct: No - Block Size: 128KB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>read libaio 0 0 256k /media/system76/test</Arguments>
+    <Description>Type: Sequential Read - Engine: Linux AIO - Buffered: No - Direct: No - Block Size: 256KB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>read libaio 0 0 512k /media/system76/test</Arguments>
+    <Description>Type: Sequential Read - Engine: Linux AIO - Buffered: No - Direct: No - Block Size: 512KB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>read libaio 0 1 16k /media/system76/test</Arguments>
+    <Description>Type: Sequential Read - Engine: Linux AIO - Buffered: No - Direct: Yes - Block Size: 16KB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>read libaio 0 1 32k /media/system76/test</Arguments>
+    <Description>Type: Sequential Read - Engine: Linux AIO - Buffered: No - Direct: Yes - Block Size: 32KB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>read libaio 0 1 64k /media/system76/test</Arguments>
+    <Description>Type: Sequential Read - Engine: Linux AIO - Buffered: No - Direct: Yes - Block Size: 64KB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>read libaio 1 0 16k /media/system76/test</Arguments>
+    <Description>Type: Sequential Read - Engine: Linux AIO - Buffered: Yes - Direct: No - Block Size: 16KB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>read libaio 1 0 32k /media/system76/test</Arguments>
+    <Description>Type: Sequential Read - Engine: Linux AIO - Buffered: Yes - Direct: No - Block Size: 32KB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>read libaio 1 0 64k /media/system76/test</Arguments>
+    <Description>Type: Sequential Read - Engine: Linux AIO - Buffered: Yes - Direct: No - Block Size: 64KB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>read libaio 1 1 1m /media/system76/test</Arguments>
+    <Description>Type: Sequential Read - Engine: Linux AIO - Buffered: Yes - Direct: Yes - Block Size: 1MB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>read libaio 1 1 2m /media/system76/test</Arguments>
+    <Description>Type: Sequential Read - Engine: Linux AIO - Buffered: Yes - Direct: Yes - Block Size: 2MB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>read libaio 1 1 4k /media/system76/test</Arguments>
+    <Description>Type: Sequential Read - Engine: Linux AIO - Buffered: Yes - Direct: Yes - Block Size: 4KB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>read libaio 1 1 4m /media/system76/test</Arguments>
+    <Description>Type: Sequential Read - Engine: Linux AIO - Buffered: Yes - Direct: Yes - Block Size: 4MB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>read libaio 1 1 8k /media/system76/test</Arguments>
+    <Description>Type: Sequential Read - Engine: Linux AIO - Buffered: Yes - Direct: Yes - Block Size: 8KB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>read libaio 1 1 8m /media/system76/test</Arguments>
+    <Description>Type: Sequential Read - Engine: Linux AIO - Buffered: Yes - Direct: Yes - Block Size: 8MB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>write libaio 0 0 16k /media/system76/test</Arguments>
+    <Description>Type: Sequential Write - Engine: Linux AIO - Buffered: No - Direct: No - Block Size: 16KB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>write libaio 0 0 32k /media/system76/test</Arguments>
+    <Description>Type: Sequential Write - Engine: Linux AIO - Buffered: No - Direct: No - Block Size: 32KB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>write libaio 0 0 64k /media/system76/test</Arguments>
+    <Description>Type: Sequential Write - Engine: Linux AIO - Buffered: No - Direct: No - Block Size: 64KB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>write libaio 0 1 1m /media/system76/test</Arguments>
+    <Description>Type: Sequential Write - Engine: Linux AIO - Buffered: No - Direct: Yes - Block Size: 1MB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>write libaio 0 1 2m /media/system76/test</Arguments>
+    <Description>Type: Sequential Write - Engine: Linux AIO - Buffered: No - Direct: Yes - Block Size: 2MB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>write libaio 0 1 4k /media/system76/test</Arguments>
+    <Description>Type: Sequential Write - Engine: Linux AIO - Buffered: No - Direct: Yes - Block Size: 4KB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>write libaio 0 1 4m /media/system76/test</Arguments>
+    <Description>Type: Sequential Write - Engine: Linux AIO - Buffered: No - Direct: Yes - Block Size: 4MB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>write libaio 0 1 8k /media/system76/test</Arguments>
+    <Description>Type: Sequential Write - Engine: Linux AIO - Buffered: No - Direct: Yes - Block Size: 8KB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>write libaio 0 1 8m /media/system76/test</Arguments>
+    <Description>Type: Sequential Write - Engine: Linux AIO - Buffered: No - Direct: Yes - Block Size: 8MB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>write libaio 1 0 1m /media/system76/test</Arguments>
+    <Description>Type: Sequential Write - Engine: Linux AIO - Buffered: Yes - Direct: No - Block Size: 1MB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>write libaio 1 0 2m /media/system76/test</Arguments>
+    <Description>Type: Sequential Write - Engine: Linux AIO - Buffered: Yes - Direct: No - Block Size: 2MB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>write libaio 1 0 4k /media/system76/test</Arguments>
+    <Description>Type: Sequential Write - Engine: Linux AIO - Buffered: Yes - Direct: No - Block Size: 4KB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>write libaio 1 0 4m /media/system76/test</Arguments>
+    <Description>Type: Sequential Write - Engine: Linux AIO - Buffered: Yes - Direct: No - Block Size: 4MB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>write libaio 1 0 8k /media/system76/test</Arguments>
+    <Description>Type: Sequential Write - Engine: Linux AIO - Buffered: Yes - Direct: No - Block Size: 8KB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>write libaio 1 0 8m /media/system76/test</Arguments>
+    <Description>Type: Sequential Write - Engine: Linux AIO - Buffered: Yes - Direct: No - Block Size: 8MB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>read libaio 0 1 128k /media/system76/test</Arguments>
+    <Description>Type: Sequential Read - Engine: Linux AIO - Buffered: No - Direct: Yes - Block Size: 128KB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>read libaio 0 1 256k /media/system76/test</Arguments>
+    <Description>Type: Sequential Read - Engine: Linux AIO - Buffered: No - Direct: Yes - Block Size: 256KB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>read libaio 0 1 512k /media/system76/test</Arguments>
+    <Description>Type: Sequential Read - Engine: Linux AIO - Buffered: No - Direct: Yes - Block Size: 512KB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>read libaio 1 0 128k /media/system76/test</Arguments>
+    <Description>Type: Sequential Read - Engine: Linux AIO - Buffered: Yes - Direct: No - Block Size: 128KB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>read libaio 1 0 256k /media/system76/test</Arguments>
+    <Description>Type: Sequential Read - Engine: Linux AIO - Buffered: Yes - Direct: No - Block Size: 256KB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>read libaio 1 0 512k /media/system76/test</Arguments>
+    <Description>Type: Sequential Read - Engine: Linux AIO - Buffered: Yes - Direct: No - Block Size: 512KB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>read libaio 1 1 16k /media/system76/test</Arguments>
+    <Description>Type: Sequential Read - Engine: Linux AIO - Buffered: Yes - Direct: Yes - Block Size: 16KB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>read libaio 1 1 32k /media/system76/test</Arguments>
+    <Description>Type: Sequential Read - Engine: Linux AIO - Buffered: Yes - Direct: Yes - Block Size: 32KB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>read libaio 1 1 64k /media/system76/test</Arguments>
+    <Description>Type: Sequential Read - Engine: Linux AIO - Buffered: Yes - Direct: Yes - Block Size: 64KB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>write libaio 0 0 128k /media/system76/test</Arguments>
+    <Description>Type: Sequential Write - Engine: Linux AIO - Buffered: No - Direct: No - Block Size: 128KB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>write libaio 0 0 256k /media/system76/test</Arguments>
+    <Description>Type: Sequential Write - Engine: Linux AIO - Buffered: No - Direct: No - Block Size: 256KB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>write libaio 0 0 512k /media/system76/test</Arguments>
+    <Description>Type: Sequential Write - Engine: Linux AIO - Buffered: No - Direct: No - Block Size: 512KB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>write libaio 0 1 16k /media/system76/test</Arguments>
+    <Description>Type: Sequential Write - Engine: Linux AIO - Buffered: No - Direct: Yes - Block Size: 16KB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>write libaio 0 1 32k /media/system76/test</Arguments>
+    <Description>Type: Sequential Write - Engine: Linux AIO - Buffered: No - Direct: Yes - Block Size: 32KB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>write libaio 0 1 64k /media/system76/test</Arguments>
+    <Description>Type: Sequential Write - Engine: Linux AIO - Buffered: No - Direct: Yes - Block Size: 64KB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>write libaio 1 0 16k /media/system76/test</Arguments>
+    <Description>Type: Sequential Write - Engine: Linux AIO - Buffered: Yes - Direct: No - Block Size: 16KB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>write libaio 1 0 32k /media/system76/test</Arguments>
+    <Description>Type: Sequential Write - Engine: Linux AIO - Buffered: Yes - Direct: No - Block Size: 32KB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>write libaio 1 0 64k /media/system76/test</Arguments>
+    <Description>Type: Sequential Write - Engine: Linux AIO - Buffered: Yes - Direct: No - Block Size: 64KB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>write libaio 1 1 1m /media/system76/test</Arguments>
+    <Description>Type: Sequential Write - Engine: Linux AIO - Buffered: Yes - Direct: Yes - Block Size: 1MB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>write libaio 1 1 2m /media/system76/test</Arguments>
+    <Description>Type: Sequential Write - Engine: Linux AIO - Buffered: Yes - Direct: Yes - Block Size: 2MB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>write libaio 1 1 4k /media/system76/test</Arguments>
+    <Description>Type: Sequential Write - Engine: Linux AIO - Buffered: Yes - Direct: Yes - Block Size: 4KB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>write libaio 1 1 4m /media/system76/test</Arguments>
+    <Description>Type: Sequential Write - Engine: Linux AIO - Buffered: Yes - Direct: Yes - Block Size: 4MB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>write libaio 1 1 8k /media/system76/test</Arguments>
+    <Description>Type: Sequential Write - Engine: Linux AIO - Buffered: Yes - Direct: Yes - Block Size: 8KB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>write libaio 1 1 8m /media/system76/test</Arguments>
+    <Description>Type: Sequential Write - Engine: Linux AIO - Buffered: Yes - Direct: Yes - Block Size: 8MB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>read libaio 1 1 128k /media/system76/test</Arguments>
+    <Description>Type: Sequential Read - Engine: Linux AIO - Buffered: Yes - Direct: Yes - Block Size: 128KB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>read libaio 1 1 256k /media/system76/test</Arguments>
+    <Description>Type: Sequential Read - Engine: Linux AIO - Buffered: Yes - Direct: Yes - Block Size: 256KB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>read libaio 1 1 512k /media/system76/test</Arguments>
+    <Description>Type: Sequential Read - Engine: Linux AIO - Buffered: Yes - Direct: Yes - Block Size: 512KB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>write libaio 0 1 128k /media/system76/test</Arguments>
+    <Description>Type: Sequential Write - Engine: Linux AIO - Buffered: No - Direct: Yes - Block Size: 128KB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>write libaio 0 1 256k /media/system76/test</Arguments>
+    <Description>Type: Sequential Write - Engine: Linux AIO - Buffered: No - Direct: Yes - Block Size: 256KB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>write libaio 0 1 512k /media/system76/test</Arguments>
+    <Description>Type: Sequential Write - Engine: Linux AIO - Buffered: No - Direct: Yes - Block Size: 512KB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>write libaio 1 0 128k /media/system76/test</Arguments>
+    <Description>Type: Sequential Write - Engine: Linux AIO - Buffered: Yes - Direct: No - Block Size: 128KB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>write libaio 1 0 256k /media/system76/test</Arguments>
+    <Description>Type: Sequential Write - Engine: Linux AIO - Buffered: Yes - Direct: No - Block Size: 256KB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>write libaio 1 0 512k /media/system76/test</Arguments>
+    <Description>Type: Sequential Write - Engine: Linux AIO - Buffered: Yes - Direct: No - Block Size: 512KB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>write libaio 1 1 16k /media/system76/test</Arguments>
+    <Description>Type: Sequential Write - Engine: Linux AIO - Buffered: Yes - Direct: Yes - Block Size: 16KB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>write libaio 1 1 32k /media/system76/test</Arguments>
+    <Description>Type: Sequential Write - Engine: Linux AIO - Buffered: Yes - Direct: Yes - Block Size: 32KB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>write libaio 1 1 64k /media/system76/test</Arguments>
+    <Description>Type: Sequential Write - Engine: Linux AIO - Buffered: Yes - Direct: Yes - Block Size: 64KB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>write libaio 1 1 128k /media/system76/test</Arguments>
+    <Description>Type: Sequential Write - Engine: Linux AIO - Buffered: Yes - Direct: Yes - Block Size: 128KB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>write libaio 1 1 256k /media/system76/test</Arguments>
+    <Description>Type: Sequential Write - Engine: Linux AIO - Buffered: Yes - Direct: Yes - Block Size: 256KB - Disk Target: /media/system76/test</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fio-1.15.0</Test>
+    <Arguments>write libaio 1 1 512k /media/system76/test</Arguments>
+    <Description>Type: Sequential Write - Engine: Linux AIO - Buffered: Yes - Direct: Yes - Block Size: 512KB - Disk Target: /media/system76/test</Description>
+  </Execute>
+</PhoronixTestSuite>

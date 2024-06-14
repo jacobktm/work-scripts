@@ -1,0 +1,30 @@
+kernel: panic
+segmentation fault
+segfault
+cut here
+\[Hardware Error\]:
+mce: Uncorrected hardware memory error
+Memory failure
+kernel: MCE: Killing
+\|\-\|Poison\|\-\]
+I/O error
+temperature above threshold
+Critical temperature reached
+usb .*-port.*: Cannot enable. Maybe the USB cable is bad?
+EXT4-fs error
+pci.*: \[.*\] error
+mount: failed
+EDAC .* (U|C)E
+(\[|\*)ERROR(\*|\])
+GPU HANG:
+Out of memory: killed process
+AER: .* error received
+PCIe Bus Error:
+invoked oom-killer
+BUG:
+#PF:
+Oops:
+Modules linked in:
+amdgpu: .*reset
+traps:
+suspend_test

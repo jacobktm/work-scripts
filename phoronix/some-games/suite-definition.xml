@@ -1,0 +1,101 @@
+<?xml version="1.0"?>
+<!--Phoronix Test Suite v10.8.4-->
+<PhoronixTestSuite>
+  <SuiteInformation>
+    <Title>some-games</Title>
+    <Version>1.0.0</Version>
+    <TestType>Graphics</TestType>
+    <Description>benchmark some games</Description>
+    <Maintainer>Jacob Kaulike</Maintainer>
+  </SuiteInformation>
+  <Execute>
+    <Test>local/hitman3-1.0.2</Test>
+    <Arguments>-ao RESOLUTION 1920x1080 ConsoleCmd settings_SetDetailLOD 0 ConsoleCmd settings_SetAntialiasing 0 ConsoleCmd settings_SetTextureQuality 0 ConsoleCmd settings_SetTextureFilter 0 ConsoleCmd settings_SetSSAO 0 ConsoleCmd settings_SetShadowResolution 0</Arguments>
+    <Description>Resolution: 1920 x 1080 - Quality Level: Low</Description>
+  </Execute>
+  <Execute>
+    <Test>local/hitman3-1.0.2</Test>
+    <Arguments>-ao RESOLUTION 1920x1080 ConsoleCmd settings_SetDetailLOD 1 ConsoleCmd settings_SetAntialiasing 2 ConsoleCmd settings_SetTextureQuality 1 ConsoleCmd settings_SetTextureFilter 1 ConsoleCmd settings_SetSSAO 1 ConsoleCmd settings_SetShadowResolution 1</Arguments>
+    <Description>Resolution: 1920 x 1080 - Quality Level: Medium</Description>
+  </Execute>
+  <Execute>
+    <Test>local/hitman3-1.0.2</Test>
+    <Arguments>-ao RESOLUTION 1920x1080 ConsoleCmd settings_SetDetailLOD 3 ConsoleCmd settings_SetAntialiasing 2 ConsoleCmd settings_SetTextureQuality 2 ConsoleCmd settings_SetTextureFilter 3 ConsoleCmd settings_SetSSAO 1 ConsoleCmd settings_SetShadowResolution 2</Arguments>
+    <Description>Resolution: 1920 x 1080 - Quality Level: Ultra</Description>
+  </Execute>
+  <Execute>
+    <Test>local/hitman3-1.0.2</Test>
+    <Arguments>-ao RESOLUTION 2560x1440 ConsoleCmd settings_SetDetailLOD 0 ConsoleCmd settings_SetAntialiasing 0 ConsoleCmd settings_SetTextureQuality 0 ConsoleCmd settings_SetTextureFilter 0 ConsoleCmd settings_SetSSAO 0 ConsoleCmd settings_SetShadowResolution 0</Arguments>
+    <Description>Resolution: 2560 x 1440 - Quality Level: Low</Description>
+  </Execute>
+  <Execute>
+    <Test>local/hitman3-1.0.2</Test>
+    <Arguments>-ao RESOLUTION 2560x1440 ConsoleCmd settings_SetDetailLOD 1 ConsoleCmd settings_SetAntialiasing 2 ConsoleCmd settings_SetTextureQuality 1 ConsoleCmd settings_SetTextureFilter 1 ConsoleCmd settings_SetSSAO 1 ConsoleCmd settings_SetShadowResolution 1</Arguments>
+    <Description>Resolution: 2560 x 1440 - Quality Level: Medium</Description>
+  </Execute>
+  <Execute>
+    <Test>local/hitman3-1.0.2</Test>
+    <Arguments>-ao RESOLUTION 2560x1440 ConsoleCmd settings_SetDetailLOD 3 ConsoleCmd settings_SetAntialiasing 2 ConsoleCmd settings_SetTextureQuality 2 ConsoleCmd settings_SetTextureFilter 3 ConsoleCmd settings_SetSSAO 1 ConsoleCmd settings_SetShadowResolution 2</Arguments>
+    <Description>Resolution: 2560 x 1440 - Quality Level: Ultra</Description>
+  </Execute>
+  <Execute>
+    <Test>local/batman-knight-1.1.0</Test>
+    <Arguments>1920 1080 Low</Arguments>
+    <Description>Resolution: 1920 x 1080 - Quality: Low</Description>
+  </Execute>
+  <Execute>
+    <Test>local/batman-knight-1.1.0</Test>
+    <Arguments>1920 1080 High</Arguments>
+    <Description>Resolution: 1920 x 1080 - Quality: High</Description>
+  </Execute>
+  <Execute>
+    <Test>local/batman-knight-1.1.0</Test>
+    <Arguments>2560 1440 Low</Arguments>
+    <Description>Resolution: 2560 x 1440 - Quality: Low</Description>
+  </Execute>
+  <Execute>
+    <Test>local/batman-knight-1.1.0</Test>
+    <Arguments>2560 1440 High</Arguments>
+    <Description>Resolution: 2560 x 1440 - Quality: High</Description>
+  </Execute>
+  <Execute>
+    <Test>local/cyberpunk2077-1.0.2</Test>
+    <Arguments>1920 1080 low</Arguments>
+    <Description>Resolution: 1920 x 1080 - Graphics Setting: Low</Description>
+  </Execute>
+  <Execute>
+    <Test>local/cyberpunk2077-1.0.2</Test>
+    <Arguments>1920 1080 medium</Arguments>
+    <Description>Resolution: 1920 x 1080 - Graphics Setting: Medium</Description>
+  </Execute>
+  <Execute>
+    <Test>local/cyberpunk2077-1.0.2</Test>
+    <Arguments>1920 1080 high</Arguments>
+    <Description>Resolution: 1920 x 1080 - Graphics Setting: High</Description>
+  </Execute>
+  <Execute>
+    <Test>local/cyberpunk2077-1.0.2</Test>
+    <Arguments>1920 1080 ultra</Arguments>
+    <Description>Resolution: 1920 x 1080 - Graphics Setting: Ultra</Description>
+  </Execute>
+  <Execute>
+    <Test>local/cyberpunk2077-1.0.2</Test>
+    <Arguments>2560 1440 low</Arguments>
+    <Description>Resolution: 2560 x 1440 - Graphics Setting: Low</Description>
+  </Execute>
+  <Execute>
+    <Test>local/cyberpunk2077-1.0.2</Test>
+    <Arguments>2560 1440 medium</Arguments>
+    <Description>Resolution: 2560 x 1440 - Graphics Setting: Medium</Description>
+  </Execute>
+  <Execute>
+    <Test>local/cyberpunk2077-1.0.2</Test>
+    <Arguments>2560 1440 high</Arguments>
+    <Description>Resolution: 2560 x 1440 - Graphics Setting: High</Description>
+  </Execute>
+  <Execute>
+    <Test>local/cyberpunk2077-1.0.2</Test>
+    <Arguments>2560 1440 ultra</Arguments>
+    <Description>Resolution: 2560 x 1440 - Graphics Setting: Ultra</Description>
+  </Execute>
+</PhoronixTestSuite>

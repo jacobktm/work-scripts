@@ -1,0 +1,18 @@
+#!/bin/bash
+
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+PKG_LIST=("acpica-tools")
+
+cd /var/tmp
+$SCRIPT_DIR/install.sh "${PKG_LIST[@]}"
+sudo acpidump -b
+sudo iasl -d *.dat
+lp=$(grep "Low Power S0 Idle" /var/tmp/facp.dsl | awk '{print $(NF)}')
+
+if [ "$lp" -eq 1 ]; then
+  echo "Low Power S0 Idle is" $lp
+  echo "The system supports S0ix!"
+else
+  echo "Low Power S0 Idle is" $lp
+  echo "The system does not support S0ix!"
+fi

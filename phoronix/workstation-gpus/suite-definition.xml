@@ -1,0 +1,224 @@
+<?xml version="1.0"?>
+<!--Phoronix Test Suite v10.8.4-->
+<PhoronixTestSuite>
+  <SuiteInformation>
+    <Title>workstation-gpus</Title>
+    <Version>1.0.0</Version>
+    <TestType>Graphics</TestType>
+    <Description>Benchmark Workstation GPUs</Description>
+    <Maintainer>Jacob Kaulike</Maintainer>
+  </SuiteInformation>
+  <Execute>
+    <Test>pts/arrayfire-1.1.0</Test>
+    <Arguments>blas_opencl</Arguments>
+    <Description>Test: BLAS OpenCL</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/arrayfire-1.1.0</Test>
+    <Arguments>cg_opencl</Arguments>
+    <Description>Test: Conjugate Gradient OpenCL</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/cl-mem-1.0.1</Test>
+    <Arguments>READ</Arguments>
+    <Description>Benchmark: Read</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/cl-mem-1.0.1</Test>
+    <Arguments>WRITE</Arguments>
+    <Description>Benchmark: Write</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/cl-mem-1.0.1</Test>
+    <Arguments>COPY</Arguments>
+    <Description>Benchmark: Copy</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/clpeak-1.1.0</Test>
+    <Arguments>--global-bandwidth</Arguments>
+    <Description>OpenCL Test: Global Memory Bandwidth</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/clpeak-1.1.0</Test>
+    <Arguments>--compute-sp</Arguments>
+    <Description>OpenCL Test: Single-Precision Compute</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/clpeak-1.1.0</Test>
+    <Arguments>--compute-dp</Arguments>
+    <Description>OpenCL Test: Double-Precision Compute</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/clpeak-1.1.0</Test>
+    <Arguments>--compute-integer</Arguments>
+    <Description>OpenCL Test: Integer Compute</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/clpeak-1.1.0</Test>
+    <Arguments>--compute-intfast</Arguments>
+    <Description>OpenCL Test: Integer 24-bit Compute</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/clpeak-1.1.0</Test>
+    <Arguments>--transfer-bandwidth #write</Arguments>
+    <Description>OpenCL Test: Transfer Bandwidth enqueueWriteBuffer</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/clpeak-1.1.0</Test>
+    <Arguments>--transfer-bandwidth #read</Arguments>
+    <Description>OpenCL Test: Transfer Bandwidth enqueueReadBuffer</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/clpeak-1.1.0</Test>
+    <Arguments>--kernel-latency</Arguments>
+    <Description>OpenCL Test: Kernel Latency</Description>
+  </Execute>
+  <Execute>
+    <Test>system/darktable-1.0.5</Test>
+    <Arguments>bench.SRW output.jpg --core -d opencl -d perf</Arguments>
+    <Description>Test: Boat - Acceleration: OpenCL</Description>
+  </Execute>
+  <Execute>
+    <Test>system/darktable-1.0.5</Test>
+    <Arguments>masskrug.NEF output.jpg --core -d opencl -d perf</Arguments>
+    <Description>Test: Masskrug - Acceleration: OpenCL</Description>
+  </Execute>
+  <Execute>
+    <Test>system/darktable-1.0.5</Test>
+    <Arguments>server_room.NEF output.jpg --core -d opencl -d perf</Arguments>
+    <Description>Test: Server Room - Acceleration: OpenCL</Description>
+  </Execute>
+  <Execute>
+    <Test>system/darktable-1.0.5</Test>
+    <Arguments>server-rack.dng output.jpg --core -d opencl -d perf</Arguments>
+    <Description>Test: Server Rack - Acceleration: OpenCL</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/financebench-1.1.1</Test>
+    <Arguments>Black-Scholes/OpenCL/blackScholesAnalyticEngine.exe</Arguments>
+    <Description>Benchmark: Black-Scholes OpenCL</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/financebench-1.1.1</Test>
+    <Arguments>Monte-Carlo/OpenCL/monteCarloEngine.exe</Arguments>
+    <Description>Benchmark: Monte-Carlo OpenCL</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fluidx3d-1.1.0</Test>
+    <Arguments>FP32-FP32</Arguments>
+    <Description>Test: FP32-FP32</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fluidx3d-1.1.0</Test>
+    <Arguments>FP32-FP16S</Arguments>
+    <Description>Test: FP32-FP16S</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/fluidx3d-1.1.0</Test>
+    <Arguments>FP32-FP16C</Arguments>
+    <Description>Test: FP32-FP16C</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/hashcat-1.1.1</Test>
+    <Arguments>-m 0</Arguments>
+    <Description>Benchmark: MD5</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/hashcat-1.1.1</Test>
+    <Arguments>-m 100</Arguments>
+    <Description>Benchmark: SHA1</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/hashcat-1.1.1</Test>
+    <Arguments>-m 1700</Arguments>
+    <Description>Benchmark: SHA-512</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/hashcat-1.1.1</Test>
+    <Arguments>-m 11600</Arguments>
+    <Description>Benchmark: 7-Zip</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/hashcat-1.1.1</Test>
+    <Arguments>-m 6211</Arguments>
+    <Description>Benchmark: TrueCrypt RIPEMD160 + XTS</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/juliagpu-1.3.1</Test>
+    <Arguments>0 1</Arguments>
+    <Description>OpenCL Device: GPU</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/lczero-1.6.0</Test>
+    <Arguments>-b opencl</Arguments>
+    <Description>Backend: OpenCL</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/lulesh-cl-1.0.1</Test>
+  </Execute>
+  <Execute>
+    <Test>pts/luxcorerender-cl-1.2.1</Test>
+    <Arguments>LuxCore2.1Benchmark/LuxCoreScene/render.cfg</Arguments>
+    <Description>Scene: LuxCore Benchmark</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/luxcorerender-cl-1.2.1</Test>
+    <Arguments>DLSC/LuxCoreScene/render.cfg</Arguments>
+    <Description>Scene: DLSC</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/luxcorerender-cl-1.2.1</Test>
+    <Arguments>RainbowColorsAndPrism/LuxCoreScene/render.cfg</Arguments>
+    <Description>Scene: Rainbow Colors and Prism</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/luxcorerender-cl-1.2.1</Test>
+    <Arguments>Food/LuxCoreScene/render.cfg</Arguments>
+    <Description>Scene: Food</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/luxmark-1.2.1</Test>
+    <Arguments>--mode=BENCHMARK_OCL_GPU --scene=LUXBALL_HDR</Arguments>
+    <Description>OpenCL Device: GPU - Scene: Luxball HDR</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/luxmark-1.2.1</Test>
+    <Arguments>--mode=BENCHMARK_OCL_GPU --scene=MICROPHONE</Arguments>
+    <Description>OpenCL Device: GPU - Scene: Microphone</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/luxmark-1.2.1</Test>
+    <Arguments>--mode=BENCHMARK_OCL_GPU --scene=HOTEL</Arguments>
+    <Description>OpenCL Device: GPU - Scene: Hotel</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/mandelbulbgpu-1.3.0</Test>
+    <Arguments>0 1</Arguments>
+    <Description>OpenCL Device: GPU</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/mandelgpu-1.3.1</Test>
+    <Arguments>0 1</Arguments>
+    <Description>OpenCL Device: GPU</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/smallpt-gpu-1.3.0</Test>
+    <Arguments>1 128 preprocessed_rendering_kernel.cl 1920 1080 scenes/complex.scn</Arguments>
+    <Description>OpenCL Device: GPU - Scene: Complex</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/smallpt-gpu-1.3.0</Test>
+    <Arguments>1 128 preprocessed_rendering_kernel.cl 1920 1080 scenes/caustic3.scn</Arguments>
+    <Description>OpenCL Device: GPU - Scene: Caustic3</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/smallpt-gpu-1.3.0</Test>
+    <Arguments>1 128 preprocessed_rendering_kernel.cl 1920 1080 scenes/cornell.scn</Arguments>
+    <Description>OpenCL Device: GPU - Scene: Cornell</Description>
+  </Execute>
+  <Execute>
+    <Test>pts/viennacl-1.1.0</Test>
+    <Arguments>dense_blas-bench-opencl</Arguments>
+    <Description>Test: OpenCL BLAS</Description>
+  </Execute>
+</PhoronixTestSuite>

@@ -1,0 +1,2 @@
+ACTION=="add", SUBSYSTEM=="block", ENV{ID_VENDOR_ID}=="152d", ENV{ID_MODEL_ID}=="a583", ENV{PARTN}=="1", ENV{UDISKS_IGNORE}="1", RUN+="/usr/local/sbin/work-files.sh add"
+ACTION=="remove", SUBSYSTEM=="block", ENV{ID_VENDOR_ID}=="152d", ENV{ID_MODEL_ID}=="a583", ENV{PARTN}=="1", RUN+="/usr/local/sbin/work-files.sh remove"

@@ -1,0 +1,6 @@
+Failed to grab modeset ownership
+platform hwmon not found
+no system76_acpi::kbd_backlight led
+memtester invoked oom-killer
+Error waiting for DMUB idle: status=[0-9]+
+tracker-miner-f

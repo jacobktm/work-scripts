@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+
+set -e
+
+while true
+do
+    last="$(sudo cat /sys/class/powercap/intel-rapl\:0/energy_uj)"
+    sleep .1
+    next="$(sudo cat /sys/class/powercap/intel-rapl\:0/energy_uj)"
+    echo "(${next} - ${last})/100000" | bc -lq
+done

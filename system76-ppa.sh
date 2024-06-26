@@ -4,6 +4,7 @@ until sudo apt update
 do
     sleep 1
 done
+sudo apt install -y gcc-12 g++-12
 sudo apt full-upgrade -y
 sudo apt autoremove -y
 sudo apt-add-repository -y ppa:system76-dev/stable

@@ -21,7 +21,7 @@ if [ -d .git ]; then
     git submodule update --init --recursive --checkout
 fi
 
-while getopts "npsu" option; do
+while getopts "npsud" option; do
     case $option in
         n) # skip reboot
             REBOOT=0;;
@@ -36,12 +36,25 @@ while getopts "npsu" option; do
             DEBUG=1;;
         \?) # Invalid option
             echo "Error: Invalid option"
-            exit;;
+            exit 1;;
     esac
 done
 
+# Check and set timezone to Denver if not already set
+if command -v timedatectl >/dev/null 2>&1; then
+    CURRENT_TZ=$(timedatectl show -p Timezone --value)
+    if [ "$CURRENT_TZ" != "America/Denver" ]; then
+        echo "Timezone is not set to America/Denver. Setting timezone to America/Denver."
+        sudo timedatectl set-timezone America/Denver
+    else
+        echo "Timezone is already set to America/Denver."
+    fi
+else
+    echo "timedatectl command not found. Cannot check or set timezone."
+fi
+
 if [ $CHECK_UBUNTU -eq 1 ]; then
-    if [[ "$(cat /etc/os-release)" == *"Ubuntu"* ]]; then
+    if grep -q "Ubuntu" /etc/os-release; then
         UBUNTU=1
     fi
 fi
@@ -65,7 +78,7 @@ if [ $UBUNTU -eq 0 ] || [ $PPA_INSTALLED -eq 1 ] || [ $SKIP_PPA -eq 0 ]; then
     PKG_LIST+=("system76-firmware-daemon")
 fi
 
-if (($UPDATE_SYS == 1)); then
+if [ $UPDATE_SYS -eq 1 ]; then
     until sudo apt update
     do
         sleep 1
@@ -83,7 +96,7 @@ sed -i "s|\./check-needrestart\.sh|${SCRIPT_DIR}/check-needrestart.sh|g" bash_al
 # Check if ~/.bash_aliases exists
 if [[ ! -f $HOME/.bash_aliases ]]; then
     cp $NEW_ALIASES_PATH $HOME/.bash_aliases
-elif (($UPDATE_ALIASES == 1)); then
+elif [ $UPDATE_ALIASES -eq 1 ]; then
     # Create a temporary diff file
     DIFF_FILE=$(mktemp)
 
@@ -141,7 +154,7 @@ fi
 
 $SCRIPT_DIR/install.sh "${PKG_LIST[@]}"
 
-if (($REBOOT == 1)); then
+if [ $REBOOT -eq 1 ]; then
     $SCRIPT_DIR/check-needrestart.sh
     if [ $? -eq 0 ]; then
         systemctl reboot -i

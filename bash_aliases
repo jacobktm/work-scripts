@@ -26,7 +26,12 @@ full-upgrade ()
 
 speed-test ()
 {
-    firefox https://speed.cloudflare.com &>/dev/null &
+    RESPONSE=$(curl -I -s --connect-timeout 10 -o /dev/null -w "%{http_code}" "http://10.17.89.69:5000/download/llvm-project-main.zip")
+    URL="https://speed.cloudflare.com"
+    if [ "$RESPONSE" -eq 200 ]; then
+        URL="http://10.17.89.69:3000?Run"
+    fi
+    firefox $URL &>/dev/null &
 }
 
 cpuperf ()

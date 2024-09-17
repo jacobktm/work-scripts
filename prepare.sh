@@ -133,31 +133,34 @@ sed -i "s|\./check-needrestart\.sh|${SCRIPT_DIR}/check-needrestart.sh|g" system7
 sed -i "s|\./count|${SCRIPT_DIR}/count|g" suspend.sh
 sed -i "s|\./resume-hook\.sh|${SCRIPT_DIR}/resume-hook.sh|g" suspend.sh
 
-cd /usr/sbin
+pushd $HOME/.local/bin
 if [ -e setup-mainline ]; then
-    sudo rm -rvf setup-mainline
+    rm -rvf setup-mainline
 fi
-sudo ln -s ${SCRIPT_DIR}/mainline.sh setup-mainline
+ln -s ${SCRIPT_DIR}/mainline.sh setup-mainline
 
 if [ -e sustest ]; then
-    sudo rm -rvf sustest
+    rm -rvf sustest
 fi
-sudo ln -s ${SCRIPT_DIR}/suspend.sh sustest
+ln -s ${SCRIPT_DIR}/suspend.sh sustest
 
 if [ -e system76-ppa ]; then
-    sudo rm -rvf system76-ppa
+    rm -rvf system76-ppa
 fi
-sudo ln -s ${SCRIPT_DIR}/system76-ppa.sh system76-ppa
+ln -s ${SCRIPT_DIR}/system76-ppa.sh system76-ppa
 if [ $INSTALL_PPA -eq 1 ]; then
     system76-ppa
 fi
 
 $SCRIPT_DIR/install.sh "${PKG_LIST[@]}"
 
-if [ $REBOOT -eq 1 ]; then
-    $SCRIPT_DIR/check-needrestart.sh
-    if [ $? -eq 0 ]; then
-        systemctl reboot -i
+if [ -e $SCRIPT_DIR/check-needrestart.sh ]; then
+    if [ $REBOOT -eq 1 ]; then
+        $SCRIPT_DIR/check-needrestart.sh
+        if [ $? -eq 0 ]; then
+            systemctl reboot -i
+        fi
     fi
 fi
+popd
 popd

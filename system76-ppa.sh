@@ -17,8 +17,10 @@ fi
 sudo apt install -y --allow-downgrades system76-driver${NVIDIA}
 sudo apt full-upgrade -y --allow-downgrades
 sudo apt autoremove -y
-./check-needrestart.sh
-if [ $? -eq 0 ];
-then
-    systemctl reboot -i
+if [ -e ./check-needrestart.sh ]; then
+    ./check-needrestart.sh
+    if [ $? -eq 0 ];
+    then
+        systemctl reboot -i
+    fi
 fi

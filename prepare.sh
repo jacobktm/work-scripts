@@ -14,6 +14,7 @@ PKG_LIST=("vim" "htop" "git-lfs" "powertop" "acpica-tools")
 pushd $SCRIPT_DIR
 
 if [ -d .git ]; then
+    ./install.sh git
     git reset --hard HEAD
     git restore .
     git fetch --all
@@ -89,65 +90,72 @@ fi
 
 # Determine the location of the current script to get the path of the new aliases file
 NEW_ALIASES_PATH="${SCRIPT_DIR}/bash_aliases"
-sed -i "s|\./install\.sh|${SCRIPT_DIR}/install.sh|g" bash_aliases
-sed -i "s|\./terminal\.sh|${SCRIPT_DIR}/terminal.sh|g" bash_aliases
-sed -i "s|\./check-needrestart\.sh|${SCRIPT_DIR}/check-needrestart.sh|g" bash_aliases
+if [ -e $NEW_ALIASES_PATH ]; then
+    sed -i "s|\./install\.sh|${SCRIPT_DIR}/install.sh|g" bash_aliases
+    sed -i "s|\./terminal\.sh|${SCRIPT_DIR}/terminal.sh|g" bash_aliases
+    sed -i "s|\./check-needrestart\.sh|${SCRIPT_DIR}/check-needrestart.sh|g" bash_aliases
 
-# Check if ~/.bash_aliases exists
-if [[ ! -f $HOME/.bash_aliases ]]; then
-    cp $NEW_ALIASES_PATH $HOME/.bash_aliases
-elif [ $UPDATE_ALIASES -eq 1 ]; then
-    # Create a temporary diff file
-    DIFF_FILE=$(mktemp)
+    # Check if ~/.bash_aliases exists
+    if [[ ! -f $HOME/.bash_aliases ]]; then
+        cp $NEW_ALIASES_PATH $HOME/.bash_aliases
+    elif [ $UPDATE_ALIASES -eq 1 ]; then
+        # Create a temporary diff file
+        DIFF_FILE=$(mktemp)
 
-    # Create a diff
-    diff -u $HOME/.bash_aliases $NEW_ALIASES_PATH > $DIFF_FILE
+        # Create a diff
+        diff -u $HOME/.bash_aliases $NEW_ALIASES_PATH > $DIFF_FILE
 
-    # Check if there are any changes
-    if [[ ! -s $DIFF_FILE ]]; then
-        echo "No changes found."
-        rm -f $DIFF_FILE
-    else
-        # Apply the patch
-        patch $HOME/.bash_aliases < $DIFF_FILE
-
-        # Check the exit status of the patch command to determine success
-        if [[ $? -eq 0 ]]; then
-            echo "Aliases updated successfully."
-        else
-            echo "Error occurred while updating aliases. Check the diff and patch manually."
-        fi
-        if [ $DEBUG -eq 0 ]; then
+        # Check if there are any changes
+        if [[ ! -s $DIFF_FILE ]]; then
+            echo "No changes found."
             rm -f $DIFF_FILE
+        else
+            # Apply the patch
+            patch $HOME/.bash_aliases < $DIFF_FILE
+
+            # Check the exit status of the patch command to determine success
+            if [[ $? -eq 0 ]]; then
+                echo "Aliases updated successfully."
+            else
+                echo "Error occurred while updating aliases. Check the diff and patch manually."
+            fi
+            if [ $DEBUG -eq 0 ]; then
+                rm -f $DIFF_FILE
+            fi
         fi
     fi
 fi
 
-# Replace './install.sh' with the absolute path of install.sh in suspend.sh and terminal.sh
-sed -i "s|\./install\.sh|${SCRIPT_DIR}/install.sh|g" suspend.sh
-sed -i "s|\./install\.sh|${SCRIPT_DIR}/install.sh|g" terminal.sh
-sed -i "s|\./install\.sh|${SCRIPT_DIR}/install.sh|g" mainline.sh
-
-sed -i "s|\./check-needrestart\.sh|${SCRIPT_DIR}/check-needrestart.sh|g" system76-ppa.sh
-
-sed -i "s|\./count|${SCRIPT_DIR}/count|g" suspend.sh
-sed -i "s|\./resume-hook\.sh|${SCRIPT_DIR}/resume-hook.sh|g" suspend.sh
+if [ -e ${SCRIPT_DIR}/terminal.sh ]; then
+    sed -i "s|\./install\.sh|${SCRIPT_DIR}/install.sh|g" terminal.sh
+fi
 
 pushd $HOME/.local/bin
-if [ -e setup-mainline ]; then
-    rm -rvf setup-mainline
+if [ -e ${SCRIPT_DIR}/mainline.sh ]; then
+    sed -i "s|\./install\.sh|${SCRIPT_DIR}/install.sh|g" mainline.sh
+    if [ -e setup-mainline ]; then
+        rm -rvf setup-mainline
+    fi
+    ln -s ${SCRIPT_DIR}/mainline.sh setup-mainline
 fi
-ln -s ${SCRIPT_DIR}/mainline.sh setup-mainline
 
-if [ -e sustest ]; then
-    rm -rvf sustest
+if [ -e ${SCRIPT_DIR}/suspend.sh ]; then
+    sed -i "s|\./install\.sh|${SCRIPT_DIR}/install.sh|g" suspend.sh
+    sed -i "s|\./count|${SCRIPT_DIR}/count|g" suspend.sh
+    sed -i "s|\./resume-hook\.sh|${SCRIPT_DIR}/resume-hook.sh|g" suspend.sh
+    if [ -e sustest ]; then
+        rm -rvf sustest
+    fi
+    ln -s ${SCRIPT_DIR}/suspend.sh sustest
 fi
-ln -s ${SCRIPT_DIR}/suspend.sh sustest
 
-if [ -e system76-ppa ]; then
-    rm -rvf system76-ppa
+if [ -e ${SCRIPT_DIR}/system76-ppa.sh ]; then
+    sed -i "s|\./check-needrestart\.sh|${SCRIPT_DIR}/check-needrestart.sh|g" system76-ppa.sh
+    if [ -e system76-ppa ]; then
+        rm -rvf system76-ppa
+    fi
+    ln -s ${SCRIPT_DIR}/system76-ppa.sh system76-ppa
 fi
-ln -s ${SCRIPT_DIR}/system76-ppa.sh system76-ppa
 if [ $INSTALL_PPA -eq 1 ]; then
     system76-ppa
 fi

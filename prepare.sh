@@ -22,6 +22,26 @@ if [ -d .git ]; then
     git submodule update --init --recursive --checkout
 fi
 
+if [ ! -f ~/.local/bin/apt ]; then
+    mkdir -p ~/.local/bin
+    cp apt-proxy ~/.local/bin/
+fi
+
+path_to_add="$HOME/.local/bin"
+
+if [ $(echo $PATH | grep -c $path_to_add) -eq 0 ]; then
+    echo "$path_to_add is not in PATH"
+    if [ $(grep -c "$path_to_add" $HOME/.bashrc) -eq 0 ]; then
+        echo PATH=$path_to_add:$PATH >> $HOME/.bashrc
+    fi
+    if [ -e ..zshrc ]; then
+        if [ $(grep -c "$path_to_add" $HOME/.zshrc) -eq 0 ]; then
+            echo PATH=$path_to_add:$PATH >> $HOME/.zshrc
+        fi
+    fi
+    PATH=$path_to_add:$PATH
+fi
+
 while getopts "npsud" option; do
     case $option in
         n) # skip reboot
@@ -80,20 +100,20 @@ if [ $UBUNTU -eq 0 ] || [ $PPA_INSTALLED -eq 1 ] || [ $SKIP_PPA -eq 0 ]; then
 fi
 
 if [ $UPDATE_SYS -eq 1 ]; then
-    until sudo apt update
+    until apt-proxy update
     do
         sleep 1
     done
-    sudo apt full-upgrade -y --allow-downgrades
-    sudo apt autoremove -y
+    apt-proxy full-upgrade -y --allow-downgrades
+    apt-proxy autoremove -y
 fi
 
 # Determine the location of the current script to get the path of the new aliases file
 NEW_ALIASES_PATH="${SCRIPT_DIR}/bash_aliases"
 if [ -e $NEW_ALIASES_PATH ]; then
-    sed -i "s|\./install\.sh|${SCRIPT_DIR}/install.sh|g" bash_aliases
-    sed -i "s|\./terminal\.sh|${SCRIPT_DIR}/terminal.sh|g" bash_aliases
-    sed -i "s|\./check-needrestart\.sh|${SCRIPT_DIR}/check-needrestart.sh|g" bash_aliases
+    sed -i "s|\./install\.sh|${SCRIPT_DIR}/install.sh|g" ${SCRIPT_DIR}/bash_aliases
+    sed -i "s|\./terminal\.sh|${SCRIPT_DIR}/terminal.sh|g" ${SCRIPT_DIR}/bash_aliases
+    sed -i "s|\./check-needrestart\.sh|${SCRIPT_DIR}/check-needrestart.sh|g" ${SCRIPT_DIR}/bash_aliases
 
     # Check if ~/.bash_aliases exists
     if [[ ! -f $HOME/.bash_aliases ]]; then
@@ -127,12 +147,12 @@ if [ -e $NEW_ALIASES_PATH ]; then
 fi
 
 if [ -e ${SCRIPT_DIR}/terminal.sh ]; then
-    sed -i "s|\./install\.sh|${SCRIPT_DIR}/install.sh|g" terminal.sh
+    sed -i "s|\./install\.sh|${SCRIPT_DIR}/install.sh|g" ${SCRIPT_DIR}/terminal.sh
 fi
 
 pushd $HOME/.local/bin
 if [ -e ${SCRIPT_DIR}/mainline.sh ]; then
-    sed -i "s|\./install\.sh|${SCRIPT_DIR}/install.sh|g" mainline.sh
+    sed -i "s|\./install\.sh|${SCRIPT_DIR}/install.sh|g" ${SCRIPT_DIR}/mainline.sh
     if [ -e setup-mainline ]; then
         rm -rvf setup-mainline
     fi
@@ -140,9 +160,9 @@ if [ -e ${SCRIPT_DIR}/mainline.sh ]; then
 fi
 
 if [ -e ${SCRIPT_DIR}/suspend.sh ]; then
-    sed -i "s|\./install\.sh|${SCRIPT_DIR}/install.sh|g" suspend.sh
-    sed -i "s|\./count|${SCRIPT_DIR}/count|g" suspend.sh
-    sed -i "s|\./resume-hook\.sh|${SCRIPT_DIR}/resume-hook.sh|g" suspend.sh
+    sed -i "s|\./install\.sh|${SCRIPT_DIR}/install.sh|g" ${SCRIPT_DIR}/suspend.sh
+    sed -i "s|\./count|${SCRIPT_DIR}/count|g" ${SCRIPT_DIR}/suspend.sh
+    sed -i "s|\./resume-hook\.sh|${SCRIPT_DIR}/resume-hook.sh|g" ${SCRIPT_DIR}/suspend.sh
     if [ -e sustest ]; then
         rm -rvf sustest
     fi
@@ -150,7 +170,7 @@ if [ -e ${SCRIPT_DIR}/suspend.sh ]; then
 fi
 
 if [ -e ${SCRIPT_DIR}/system76-ppa.sh ]; then
-    sed -i "s|\./check-needrestart\.sh|${SCRIPT_DIR}/check-needrestart.sh|g" system76-ppa.sh
+    sed -i "s|\./check-needrestart\.sh|${SCRIPT_DIR}/check-needrestart.sh|g" ${SCRIPT_DIR}/system76-ppa.sh
     if [ -e system76-ppa ]; then
         rm -rvf system76-ppa
     fi

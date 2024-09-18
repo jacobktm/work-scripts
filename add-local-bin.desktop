@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Add Local Bin to PATH
+Exec=$HOME/.local/bin/add_local_bin.sh
+Hidden=true
+NoDisplay=true
+X-GNOME-Autostart-enabled=true
+Terminal=false
+Comment=Add $HOME/.local/bin to .bashrc

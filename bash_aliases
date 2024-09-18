@@ -1,8 +1,16 @@
-alias ll='ls -al'
+alias ll='ls -alh'
 
 alias r-fw='systemctl reboot --firmware-setup'
 
 alias pts='phoronix'
+
+apt_command() {
+    if command -v apt-proxy &>/dev/null; then
+        apt-proxy "$@"
+    else
+        sudo apt "$@"
+    fi
+}
 
 mkcd ()
 {
@@ -11,15 +19,28 @@ mkcd ()
 
 full-upgrade ()
 {
-    until sudo apt update
+    path_to_add="$HOME/.local/bin"
+
+    if [ $(echo $PATH | grep -c $path_to_add) -eq 0 ]; then
+        echo "$path_to_add is not in PATH"
+        if [ $(grep -c "$path_to_add" $HOME/.bashrc) -eq 0 ]; then
+            echo PATH=$path_to_add:$PATH >> $HOME/.bashrc
+        fi
+        if [ -e .zshrc ]; then
+            if [ $(grep -c "$path_to_add" $HOME/.zshrc) -eq 0 ]; then
+                echo PATH=$path_to_add:$PATH >> $HOME/.zshrc
+            fi
+        fi
+        PATH=$path_to_add:$PATH
+    fi
+    until apt_command update
     do
         sleep 1
     done
-    sudo apt full-upgrade -y --allow-downgrades
-    sudo apt autoremove -y
+    apt_command full-upgrade -y --allow-downgrades
+    apt_command autoremove -y
     ./check-needrestart.sh
-    if [ $? -gt 0 ];
-    then
+    if [ $? -gt 0 ]; then
         systemctl reboot -i
     fi
 }

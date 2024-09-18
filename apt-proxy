@@ -1,0 +1,11 @@
+#!/bin/bash
+
+# Optional: Include logic to check for proxy availability
+RESPONSE=$(curl -I -s --connect-timeout 10 -o /dev/null -w "%{http_code}" "http://10.17.89.69:5000/download/llvm-project-main.zip")
+if [ "$RESPONSE" -eq 200 ]; then
+    sudo /usr/bin/apt -o Acquire::http::Proxy="http://10.17.89.69:3142/" \
+        -o Acquire::https::Proxy="http://10.17.89.69:3142/" \
+        "$@"
+else
+    sudo /usr/bin/apt "$@"
+fi

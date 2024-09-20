@@ -3,6 +3,14 @@
 SCRIPT_PATH=$(cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd)
 PKG_LIST=("git-lfs" "git")
 
+apt_command() {
+    if command -v apt-proxy &>/dev/null; then
+        apt-proxy "$@"
+    else
+        sudo apt "$@"
+    fi
+}
+
 ./install.sh "${PKG_LIST[@]}"
 
 do_reboot() {
@@ -19,8 +27,10 @@ if [ ! -d ${HOME}/Documents/stress-scripts ]; then
     pushd ${HOME}
     if [ ! -e .rebooted ];
     then
-        sudo apt update
-        sudo apt full-upgrade -y --allow-downgrades
+        until apt_command update; do
+            sleep 10
+        done
+        apt_command full-upgrade -y --allow-downgrades
         pushd ${HOME}/Documents
             if [ ! -e stress-scripts ]; then
                 git clone https://github.com/jacobktm/stress-scripts.git

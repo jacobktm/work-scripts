@@ -1,22 +1,32 @@
 #!/usr/bin/env bash
 
-until sudo apt update
+apt_command() {
+    if command -v apt-proxy &>/dev/null; then
+        apt-proxy "$@"
+    else
+        sudo apt "$@"
+    fi
+}
+
+until apt_command update
 do
     sleep 1
 done
-sudo apt install -y gcc-12 g++-12
-sudo apt full-upgrade -y
-sudo apt autoremove -y
+apt_command install -y gcc-12 g++-12
+apt_command full-upgrade -y
+apt_command autoremove -y
 sudo apt-add-repository -y ppa:system76-dev/stable
-sudo apt update
+until apt_command update; do
+    sleep 1
+done
 NVIDIA=""
 NVIDIA_PRESENT=`lspci | grep -c NVIDIA`
 if [ $NVIDIA_PRESENT -gt 0 ]; then
     NVIDIA=" system76-driver-nvidia"
 fi
-sudo apt install -y --allow-downgrades system76-driver${NVIDIA}
-sudo apt full-upgrade -y --allow-downgrades
-sudo apt autoremove -y
+apt_command install -y --allow-downgrades system76-driver${NVIDIA}
+apt_command full-upgrade -y --allow-downgrades
+apt_command autoremove -y
 if [ -e ./check-needrestart.sh ]; then
     ./check-needrestart.sh
     if [ $? -eq 0 ];

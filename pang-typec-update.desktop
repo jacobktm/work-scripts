@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Pangolin Type-C Update
+Exec=/home/oem/.local/bin/pang-typec-update.sh
+Hidden=false
+NoDisplay=false
+X-GNOME-Autostart-enabled=true
+Terminal=false
+Comment=Prompt for Pangolin Type-C Update

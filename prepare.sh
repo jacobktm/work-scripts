@@ -37,7 +37,12 @@ if [ ! -f ~/.bash_completion.d/apt-proxy ]; then
     fi
 fi
 if [ $(grep -c "~/\.bash_completion\.d" ~/.bashrc) -eq 0 ]; then
-    echo -e "if [ -d ~/.bash_completion.d ]; then\n    for f in ~/.bash_completion.d/*; do\n        . \"\$f\"\n    done\nfi" >> /home/oem/.bashrc
+    echo -e "if [ -d ~/.bash_completion.d ]; then\n    for f in ~/.bash_completion.d/*; do\n        . \"\$f\"\n    done\nfi" >> ~/.bashrc
+fi
+if [ -f ~/.zshrc ]; then
+    if [ $(grep -c "~/\.bash_completion\.d" ~/.zshrc) -eq 0 ]; then
+        echo -e "if [ -d ~/.bash_completion.d ]; then\n    for f in ~/.bash_completion.d/*; do\n        . \"\$f\"\n    done\nfi" >> ~/.zshrc
+    fi
 fi
 
 PATH="$HOME/.local/bin:$PATH"

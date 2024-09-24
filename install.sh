@@ -5,22 +5,6 @@ if [ $# -eq 0 ]; then
     exit 0
 fi
 
-# Add the script path to the $PATH if it's not already present
-path_to_add="$HOME/.local/bin"
-
-if [ $(echo $PATH | grep -c $path_to_add) -eq 0 ]; then
-    echo "$path_to_add is not in PATH"
-    if [ $(grep -c "$path_to_add" $HOME/.bashrc) -eq 0 ]; then
-        echo PATH=$path_to_add:$PATH >> $HOME/.bashrc
-    fi
-    if [ -e ..zshrc ]; then
-        if [ $(grep -c "$path_to_add" $HOME/.zshrc) -eq 0 ]; then
-            echo PATH=$path_to_add:$PATH >> $HOME/.zshrc
-        fi
-    fi
-    PATH=$path_to_add:$PATH
-fi
-
 PKG_LIST=()
 
 # Function to check if a package is installed

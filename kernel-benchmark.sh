@@ -5,6 +5,11 @@ NUM_BUILDS=32
 INTERRUPTED=false
 BUILD_COUNT=0
 RUNS=0
+MASTER="master"
+
+if [ $(cat /etc/os-release | grep VERSION_CODENAME | grep -c jammy) -gt 0 ]; then
+    MASTER="master_jammy"
+fi
 
 PKG_LIST=("git" "build-essential" "debhelper" "devscripts" "gcc-12" "makedumpfile" "libcap-dev"
           "libelf-dev" "libnewt-dev" "libiberty-dev" "default-jdk-headless" "java-common"
@@ -18,7 +23,7 @@ KERNEL_DIR=~/linux
 
 if [ ! -d "$KERNEL_DIR" ]; then
     pushd ~/
-        git clone https://github.com/pop-os/linux.git
+        git clone --branch $MASTER https://github.com/pop-os/linux.git
     popd
 fi
 

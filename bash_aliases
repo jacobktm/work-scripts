@@ -440,3 +440,13 @@ dmi ()
     echo "Chassis Information"
     sudo dmidecode --type 3 | grep -e Manufacturer -e Type -e Version
 }
+
+check_pkfail ()
+{
+    ./install.sh efitools
+    if [ $(efi-readvar -v PK | grep -c "DO NOT TRUST\|DO NOT SHIP") -gt 0 ]; then
+        echo "Vulnerable to PKFail, needs patching."
+    else
+        echo "PKFail not found."
+    fi
+}

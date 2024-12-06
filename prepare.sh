@@ -99,7 +99,7 @@ if [ $SKIP_PPA -gt 0 ]; then
     INSTALL_PPA=0
 fi
 
-if [ $UBUNTU -eq 0 ] || [ $PPA_INSTALLED -eq 1 ] || [ $SKIP_PPA -eq 0 ]; then
+if [ $UBUNTU -eq 0 ] && [ $PPA_INSTALLED -eq 1 ] && [ $SKIP_PPA -eq 0 ]; then
     PKG_LIST+=("system76-firmware")
     PKG_LIST+=("system76-firmware-daemon")
 fi

@@ -5,6 +5,22 @@ if [ $# -eq 0 ]; then
     exit 0
 fi
 
+USE_BUILD_DEP=false
+
+# Parse command-line options
+while getopts "b" opt; do
+    case $opt in
+        b)
+            USE_BUILD_DEP=true
+            ;;
+        *)
+            echo "Usage: $0 [-b] [packages...]"
+            exit 1
+            ;;
+    esac
+done
+shift $((OPTIND - 1))
+
 PKG_LIST=()
 
 # Function to check if a package is installed
@@ -50,7 +66,14 @@ if [ ${#PKG_LIST[@]} -ne 0 ]; then
             until $APT_COMMAND update; do
                 sleep 10
             done
-            $APT_COMMAND install -y "${PKG_LIST[@]}"
+
+            if $USE_BUILD_DEP; then
+                for pkg in "${PKG_LIST[@]}"; do
+                    $APT_COMMAND build-dep -y "$pkg"
+                done
+            else
+                $APT_COMMAND install -y "${PKG_LIST[@]}"
+            fi
             ;;
         arch)
             if ! command -v yay &>/dev/null; then
@@ -72,3 +95,4 @@ if [ ${#PKG_LIST[@]} -ne 0 ]; then
             ;;
     esac
 fi
+

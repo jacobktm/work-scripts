@@ -42,11 +42,30 @@ else
     echo "Kernel source directory exists. Proceeding with the build..."
 fi
 
+./install.sh -b linux-system76
+./install.sh devscripts debhelper libncurses-dev build-essential ccache
+
 # Check if the kernel source directory is valid
 if [[ ! -f "$KERNEL_SRC_DIR/Makefile" ]]; then
     echo "Error: Makefile not found in $KERNEL_SRC_DIR. Ensure this is a valid kernel source directory."
     exit 1
 fi
+
+# Configure ccache as a transparent compiler proxy
+echo "Checking if ccache is already linked..."
+if [ ! -L /usr/local/bin/gcc ] || [ $(readlink /usr/local/bin/gcc) != $(which ccache) ]; then
+    echo "Setting up ccache to masquerade as the compiler..."
+    sudo ln -sf $(which ccache) /usr/local/bin/gcc
+fi
+if [ ! -L /usr/local/bin/g++ ] || [ $(readlink /usr/local/bin/g++) != $(which ccache) ]; then
+    sudo ln -sf $(which ccache) /usr/local/bin/g++
+fi
+
+# Configure ccache
+echo "Configuring ccache..."
+export CCACHE_DIR=~/.ccache
+ccache --set-config=cache_dir="$CCACHE_DIR"
+ccache --max-size=10G
 
 # Cleanup previous build artifacts
 echo "Cleaning up previous build artifacts..."
@@ -79,11 +98,6 @@ make scripts
 
 # Determine kernel version
 KERNEL_VERSION=$(make -s kernelrelease)
-
-# Check for required utilities
-command -v make > /dev/null || { echo "Error: 'make' is not installed."; exit 1; }
-command -v kernelstub > /dev/null || { echo "Error: 'kernelstub' is not installed."; exit 1; }
-command -v bootctl > /dev/null || { echo "Error: 'bootctl' is not installed."; exit 1; }
 
 echo "Building Linux kernel version $KERNEL_VERSION..."
 

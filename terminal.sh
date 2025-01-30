@@ -25,6 +25,9 @@ choose_terminal_by_session() {
         mate)
             terminal="mate-terminal"
             ;;
+        COSMIC)
+            terminal="cosmic-term"
+            ;;
         *)
             terminal="xterm"
             ;;

@@ -71,6 +71,31 @@ reset_kernel() {
         sudo rm -f "$build"
     done
 
+    # Remove kernel headers from /usr/src
+    echo "Removing old kernel headers..."
+    sudo rm -rf /usr/src/linux-headers-*-build-*
+
+    # Remove DKMS modules only for deleted "-build-N" kernels
+    echo "Removing outdated DKMS modules for custom built kernels..."
+    dkms status | grep "\-build-" | awk -F', ' '{print $1","$2}' | while read -r dkms_entry; do
+        module_name=$(echo "$dkms_entry" | awk -F'/' '{print $1}')
+        module_version=$(echo "$dkms_entry" | awk -F'/' '{print $2}' | cut -d ',' -f1)
+        kernel_version=$(echo "$dkms_entry" | awk -F', ' '{print $2}')
+
+        # Only process kernels matching "-build-N"
+        if [[ "$kernel_version" == *"-build-"* ]]; then
+            # Remove only if the kernel version is no longer installed
+            if ! ls "$INSTALL_DIR/vmlinuz-$kernel_version" &>/dev/null; then
+                echo "Removing DKMS module: $module_name/$module_version for $kernel_version"
+                sudo dkms remove -m "$module_name" -v "$module_version" -k "$kernel_version" --quiet
+            fi
+        fi
+    done
+
+    # Remove module files from /lib/modules
+    echo "Removing old kernel modules..."
+    sudo rm -rf /lib/modules/*-build-*
+
     # Delete previous files from the UUID-based directory
     local efi_dir=$(sudo find /boot/efi/EFI -type d -name "Pop_OS-*" 2>/dev/null)
     if [ -n "$efi_dir" ]; then
@@ -110,12 +135,12 @@ reset_kernel() {
     echo "Kernel reset to $saved_kernel successfully."
     
     # Prompt to reboot
-    read -p "The kernel $kernel_version has been installed. Would you like to reboot now? [Y/n]: " reboot_choice
+    read -p "The kernel $saved_kernel has been restored. Would you like to reboot now? [Y/n]: " reboot_choice
     if [[ -z "$reboot_choice" || "$reboot_choice" =~ ^[Yy]$ ]]; then
         echo "Rebooting now..."
         sudo reboot
     else
-        echo "Reboot skipped. Please remember to reboot later to use the new kernel."
+        echo "Reboot skipped. Please remember to reboot later to use the restored kernel."
     fi
 }
 
@@ -130,14 +155,16 @@ increment_build_count() {
 }
 
 cleanup_old_builds() {
+    echo "Checking for old kernel builds to clean up..."
+
     # Find all vmlinuz files with "-build-" in the name and extract build numbers
-    local builds=( $(ls "$INSTALL_DIR"/vmlinuz-* | grep "\-build\-" | awk -F'-build-' '{print $2}' | sort -n) )
+    local builds=( $(ls "$INSTALL_DIR"/vmlinuz-* 2>/dev/null | grep "\-build\-" | awk -F'-build-' '{print $2}' | sort -n) )
 
     # Check if the number of builds exceeds the maximum allowed
     if [ ${#builds[@]} -gt $MAX_BUILDS ]; then
         local to_remove=$(( ${#builds[@]} - $MAX_BUILDS ))
         echo "Found ${#builds[@]} builds. Removing $to_remove old builds..."
-        
+
         # Remove the oldest builds
         for ((i=0; i<to_remove; i++)); do
             local build_number=${builds[i]}
@@ -148,18 +175,16 @@ cleanup_old_builds() {
             local sysmap_to_remove=$(ls "$INSTALL_DIR"/System.map-*-build-"$build_number" 2>/dev/null)
             local config_to_remove=$(ls "$INSTALL_DIR"/config-*-build-"$build_number" 2>/dev/null)
 
-            # Remove vmlinuz
+            # Remove kernel images
             if [ -n "$kernel_to_remove" ]; then
                 echo "Removing kernel: $kernel_to_remove"
                 sudo rm -f "$kernel_to_remove"
             fi
 
-            # Remove initrd.img
+            # Remove initrd images
             if [ -n "$initrd_to_remove" ]; then
                 echo "Removing initrd: $initrd_to_remove"
                 sudo rm -f "$initrd_to_remove"
-            else
-                echo "Warning: No initrd found for build $build_number"
             fi
 
             # Remove System.map
@@ -168,10 +193,37 @@ cleanup_old_builds() {
                 sudo rm -f "$sysmap_to_remove"
             fi
 
-            # Remove config
+            # Remove config files
             if [ -n "$config_to_remove" ]; then
                 echo "Removing config: $config_to_remove"
                 sudo rm -f "$config_to_remove"
+            fi
+
+            # Remove kernel headers from /usr/src
+            local headers_to_remove="/usr/src/linux-headers-*build-$build_number"
+            if ls $headers_to_remove 1>/dev/null 2>&1; then
+                echo "Removing kernel headers: $headers_to_remove"
+                sudo rm -rf $headers_to_remove
+            fi
+            
+            # Remove DKMS builds ONLY for the kernel being deleted
+            echo "Removing DKMS modules for build-$build_number..."
+            dkms status | grep "build-$build_number" | while read -r dkms_entry; do
+                module_name=$(echo "$dkms_entry" | awk -F'/' '{print $1}')
+                module_version=$(echo "$dkms_entry" | awk -F'/' '{print $2}' | cut -d ',' -f1)
+                kernel_version=$(echo "$dkms_entry" | awk -F', ' '{print $2}')
+
+                if [[ "$kernel_version" == *"build-$build_number" ]]; then
+                    echo "Removing DKMS module: $module_name/$module_version for $kernel_version"
+                    sudo dkms remove -m "$module_name" -v "$module_version" -k "$kernel_version" --quiet
+                fi
+            done
+
+            # Remove module files from /lib/modules
+            local modules_to_remove="/lib/modules/*build-$build_number"
+            if ls $modules_to_remove 1>/dev/null 2>&1; then
+                echo "Removing kernel modules: $modules_to_remove"
+                sudo rm -rf $modules_to_remove
             fi
         done
     else
@@ -247,7 +299,10 @@ build_kernel() {
     if [ ! -z "$BRANCH" ]; then
         git checkout "$BRANCH"
     fi
-    make mrproper
+    if [ ! $(ls | grep -c linux-headers) -eq 0 ]; then
+        sudo rm -rf linux-headers-*
+    fi
+    sudo make mrproper
 
     # Restore source tree if it is a git repository
     if [ -d ".git" ]; then
@@ -316,6 +371,16 @@ install_kernel() {
         return
     fi
 
+    # **Install kernel headers before modules_install**
+    echo "Installing kernel headers..."
+    sudo make headers_install INSTALL_HDR_PATH=/usr/src/linux-headers-"$kernel_version"
+
+    # Link headers to modules directory for DKMS
+    echo "Linking kernel headers for DKMS..."
+    sudo mkdir -p /lib/modules/"$kernel_version"
+    sudo ln -sf /usr/src/linux-headers-"$kernel_version" /lib/modules/"$kernel_version"/build
+    sudo ln -sf /usr/src/linux-headers-"$kernel_version" /lib/modules/"$kernel_version"/source
+
     # Ensure modules match the saved kernel version
     echo "Stripping unneeded symbols..."
     sudo make INSTALL_MOD_STRIP=1 modules_install LOCALVERSION="-build-$build_count"
@@ -323,18 +388,31 @@ install_kernel() {
     echo "Installing kernel..."
     sudo make install LOCALVERSION="-build-$build_count"
 
+    # **Run DKMS manually after headers are installed**
+    echo "Rebuilding DKMS modules..."
+    sudo dkms autoinstall
+    
+    # Get installed NVIDIA DKMS version
+    nvidia_version=$(dkms status | grep -i '^nvidia/' | awk -F'[,/ ]+' '{print $2}')
+
+    if [[ ! -z "$nvidia_version" ]]; then
+        echo "Forcing DKMS to recognize and rebuild NVIDIA module for $kernel_version..."
+        sudo dkms build -m nvidia -v $nvidia_version -k $kernel_version
+        sudo dkms install -m nvidia -v $nvidia_version -k $kernel_version
+    fi
+
     # Update initramfs and bootloader
     echo "Updating initramfs and bootloader..."
     sudo update-initramfs -c -k "$kernel_version"
     sudo kernelstub -k "$kernel_image" -i "$initrd_image"
     sudo bootctl update
-    
+
     rm -f "$KERNEL_SRC_DIR/.built_kernel_version"
 
     # Cleanup old builds
     cleanup_old_builds
     echo "Kernel $kernel_version installed successfully."
-    
+
     # Prompt to reboot
     read -p "The kernel $kernel_version has been installed. Would you like to reboot now? [Y/n]: " reboot_choice
     if [[ -z "$reboot_choice" || "$reboot_choice" =~ ^[Yy]$ ]]; then

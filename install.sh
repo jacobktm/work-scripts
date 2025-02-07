@@ -27,24 +27,16 @@ os_name=$(awk -F= '/^ID=/{print $2}' /etc/os-release)
 PKG_LIST=()
 
 if $USE_BUILD_DEP && [[ "$os_name" =~ ^(ubuntu|pop|debian)$ ]]; then
-    # For each provided package, get the build dependencies via a dry-run.
+    # Loop through each package argument
     for pkg in "$@"; do
-        # The -s flag simulates the operation
+        # Run a simulated build-dep to see what would be installed
         output=$(sudo apt-get build-dep -s "$pkg" 2>/dev/null)
-        
-        # Check if the output indicates that new packages will be installed.
-        # apt-get output typically contains a section like:
-        #   The following NEW packages will be installed:
-        #     pkg1 pkg2 pkg3 ...
-        if echo "$output" | grep -q "The following NEW packages will be installed:"; then
-            # Extract lines after the marker until a line starting with a digit (e.g. summary line)
-            deps=$(echo "$output" | awk '/The following NEW packages will be installed:/{flag=1; next} /^0 upgraded,/{flag=0} flag {print}')
-            # The dependency list might be spread over several lines. Loop over each token.
+        # Use grep to capture lines that start with "Inst" and extract the package name
+        deps=$(echo "$output" | grep '^Inst' | awk '{print $2}')
+        if [ ! -z "$deps" ]; then
             for dep in $deps; do
                 PKG_LIST+=("$dep")
             done
-        else
-            echo "No new build-dependencies found for $pkg (they might already be satisfied)."
         fi
     done
 else
@@ -116,6 +108,4 @@ if [ ${#FINAL_PKGS[@]} -ne 0 ]; then
             exit 1
             ;;
     esac
-else
-    echo "All required packages are already installed."
 fi

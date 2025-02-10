@@ -17,9 +17,13 @@ TEST_SCRIPT=$(realpath "$1")
 
 # Copy the script to autostart if not already there
 AUTOSTART_DESKTOP="$HOME/.config/autostart/$(basename "$0")-autostart.desktop"
+APT="sudo apt"
+if [ -e "$HOME/.local/bin/apt-proxy" ]; then
+    APT="apt-proxy"
+fi
 
 if [ ! -f "$AUTOSTART_DESKTOP" ]; then
-    sudo apt update
+    $APT update
     if [ ! -d "$HOME/.config/autostart" ]; then
         mkdir -p "$HOME/.config/autostart"
     fi
@@ -55,14 +59,14 @@ fi
 
 # Function to get list of packages that will be installed with an update
 get_install_list() {
-    sudo apt install --simulate "$1" 2>/dev/null | grep Inst | awk '{print $2}' > "$LOG_DIR"/install_list.txt
+    $APT install --simulate "$1" 2>/dev/null | grep Inst | awk '{print $2}' > "$LOG_DIR"/install_list.txt
 }
 
 install_next_update() {
     to_install=$(apt list --upgradeable 2>/dev/null | grep -v "Listing..." | awk -F'/' '{print $1}' | head -n 1)
     if [ -n "$to_install" ]; then
         get_install_list "$to_install"
-        sudo apt install -y "$to_install"
+        $APT install -y "$to_install"
         systemctl reboot -i
     else
         echo "No packages to install."

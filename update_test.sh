@@ -140,9 +140,14 @@ install_next_update() {
         fi
     fi
 }
-
+if [ ! -f "$LOG_DIR/installed_packages.txt" ]; then
+    touch "$LOG_DIR/installed_packages.txt"
+fi
 OUTPUT=$($TEST_SCRIPT)
 if [ "$OUTPUT" == "PASSED" ]; then
+    if [ -f "$LOG_DIR/install_list.txt" ]; then
+        cat "$LOG_DIR/install_list.txt" >> "$LOG_DIR/installed_packages.txt"
+    fi
     install_next_update
 elif [ "$OUTPUT" == "FAILED" ]; then
     cat "$LOG_DIR/install_list.txt" > "$HOME/Desktop/problem_package"

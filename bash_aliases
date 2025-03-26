@@ -243,7 +243,7 @@ mst ()
             rm -f /tmp/count
         fi
     fi
-    systemctl suspend
+    systemctl suspend -i
 }
 
 drain-bat ()

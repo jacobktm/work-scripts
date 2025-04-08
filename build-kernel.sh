@@ -9,11 +9,44 @@ KERNEL_SRC_DIR=""
 INSTALL_DIR=/boot
 KERNEL_VERSION_FILE="$HOME/.kernel_version"
 BUILD_COUNT_FILE="$HOME/.kernel_build_count"
+SYSTEM76_KERNEL=1
+LINUX_REPO="https://github.com/pop-os/linux.git"
 MAX_BUILDS=3
 INSTALLED=false
 MAX_CACHE=20
 BRANCH=""
 
+# ------------------------------------------------------------------
+# New function: get_distcc_hosts
+# Purpose: Query the central service for the list of available distcc 
+# client IP addresses and format them (each appended with "/4").
+# ------------------------------------------------------------------
+get_distcc_hosts() {
+    local json_output
+    json_output=$(curl -s http://10.17.89.69:50000/systems)
+    if command -v jq >/dev/null 2>&1; then
+        # Use jq to extract each ip and append "/4"
+         echo $(echo "$json_output" | jq -r '.systems[] | "\(.hostname)/\(.info.cores // "4")"')
+    else
+        # Fallback using grep and awk (less robust)
+        echo "$json_output" | grep -oP '"hostname":\s*"\K[^"]+' | awk '{printf $1"/4 "}'
+    fi
+}
+
+get_remote_cores() {
+    local json_output
+    json_output=$(curl -s http://10.17.89.69:50000/systems)
+    if command -v jq >/dev/null 2>&1; then
+        # Use jq to extract the "cores" value from each entry under "info"
+        # If "cores" is missing, default to "0".
+        echo $(echo "$json_output" | jq '[.systems[].info.cores // "0" | tonumber] | add')
+    else
+        # Fallback using grep/awk: this assumes that the JSON contains a "cores" field as a string.
+        echo "$json_output" | grep -oP '"cores":\s*"\K[^"]+' | awk '{ sum+=$1 } END { print sum+0 }'
+    fi
+}
+
+# ------------------------------------------------------------------
 # Functions
 usage() {
     echo "Usage: $0 -p <linux-repo> [-r | -b | -i | -b -i ] [-c <max-cache> | -g <git-branch>]"
@@ -28,7 +61,8 @@ usage() {
 
 save_current_kernel() {
     if [ ! -f "$KERNEL_VERSION_FILE" ]; then
-        local current_kernel=$(uname -r)
+        local current_kernel
+        current_kernel=$(uname -r)
         echo "$current_kernel" > "$KERNEL_VERSION_FILE"
         echo "Saved current kernel version: $current_kernel"
     else
@@ -233,7 +267,8 @@ cleanup_old_builds() {
 
 build_kernel() {
     $SCRIPT_DIR/install.sh -b linux-system76
-    $SCRIPT_DIR/install.sh devscripts debhelper libncurses-dev build-essential ccache
+    $SCRIPT_DIR/install.sh devscripts debhelper libncurses-dev build-essential ccache distcc
+    ./setup-distcc.sh
     
     # Ensure the repository exists
     if [[ -d "$KERNEL_SRC_DIR" && ! -f "$KERNEL_SRC_DIR/Makefile" ]]; then
@@ -251,28 +286,29 @@ build_kernel() {
     # Clone the repository if the directory doesn't exist
     if [[ ! -d "$KERNEL_SRC_DIR" ]]; then
         if [ -z "$BRANCH" ]; then
-            local distro_codename=$(lsb_release -cs)
-            local branch_name="master_$distro_codename"
+            if [ $SYSTEM76_KERNEL -eq 1 ]; then
+                local distro_codename
+                distro_codename=$(lsb_release -cs)
+                local branch_name="master_$distro_codename"
+            else
+                local branch_name="master"
+            fi
         else
             local branch_name="$BRANCH"
         fi
         
         echo "Kernel source directory not found. Cloning repository..."
-        local parent_dir=$(dirname "$KERNEL_SRC_DIR")
-
-        # Handle the case where the kernel source directory is ~/linux
+        local parent_dir
+        parent_dir=$(dirname "$KERNEL_SRC_DIR")
         if [[ "$KERNEL_SRC_DIR" == "$HOME/linux" ]]; then
             parent_dir="$HOME"
         fi
-
-        # Change to the parent directory and clone the repository
         if [ ! -d "$parent_dir" ]; then
             mkdir -p "$parent_dir"
         fi
         cd "$parent_dir"
-        
         echo "Cloning branch: $branch_name"
-        git clone --branch "$branch_name" https://github.com/pop-os/linux.git "$(basename $KERNEL_SRC_DIR)"
+        git clone --branch "$branch_name" "$LINUX_REPO" "$(basename $KERNEL_SRC_DIR)"
     fi
     
     if [[ ! -f "$KERNEL_SRC_DIR/Makefile" ]]; then
@@ -293,6 +329,11 @@ build_kernel() {
     export CCACHE_DIR=~/.ccache
     ccache --set-config=cache_dir="$CCACHE_DIR"
     ccache --max-size="${MAX_CACHE}G"
+
+    # --- New distcc integration ---
+    echo "Querying distcc host list from central service..."
+    DISTCC_HOSTS="$(get_distcc_hosts)"
+    echo "Final DISTCC_HOSTS: $DISTCC_HOSTS"
 
     echo "Cleaning and preparing the build environment..."
     cd "$KERNEL_SRC_DIR"
@@ -323,17 +364,27 @@ build_kernel() {
 
     yes "" | make oldconfig
     
-    # Save kernel version during build and clean up the version string
-    local build_count=$(increment_build_count)
+    local build_count
+    build_count=$(increment_build_count)
     local suffix="-build-$build_count"
-    local kernel_version="$(make -s kernelrelease | sed 's/+//g')${suffix}"
+    local kernel_version
+    kernel_version="$(make -s kernelrelease | sed 's/+//g')${suffix}"
     echo "$kernel_version" > "$KERNEL_SRC_DIR/.built_kernel_version"
     
     make prepare
     make scripts
 
+    # --- Calculate total parallel jobs ---
+    local REMOTE_CORES
+    REMOTE_CORES=$(get_remote_cores)
+    local LOCAL_CORES
+    LOCAL_CORES=$(nproc)
+    local TOTAL_CORES=$((REMOTE_CORES + LOCAL_CORES))
+    echo "Local cores: ${LOCAL_CORES}, Remote cores: ${REMOTE_CORES}, Total parallel jobs: ${TOTAL_CORES}"
+    # ---------------------------------------
+
     echo "Building kernel..."
-    make -j$(nproc) LOCALVERSION="$suffix" V=1
+    make -j${TOTAL_CORES} LOCALVERSION="$suffix" V=1 CC="distcc /usr/local/bin/gcc" CXX="distcc /usr/local/bin/g++"
 }
 
 install_kernel() {
@@ -344,23 +395,22 @@ install_kernel() {
 
     cd "$KERNEL_SRC_DIR"
 
-    # Check if build count file exists, if not, build the kernel
     if [ ! -f "$BUILD_COUNT_FILE" ]; then
         echo "Build count file not found. Building kernel first..."
         build_kernel
     fi
 
-    # Load the saved kernel version from build
     if [ ! -f "$KERNEL_SRC_DIR/.built_kernel_version" ]; then
         echo "Error: No built kernel version found. Building kernel first..."
         build_kernel
     fi
-    local kernel_version=$(cat "$KERNEL_SRC_DIR/.built_kernel_version")
+    local kernel_version
+    kernel_version=$(cat "$KERNEL_SRC_DIR/.built_kernel_version")
     local kernel_image="$INSTALL_DIR/vmlinuz-$kernel_version"
     local initrd_image="$INSTALL_DIR/initrd.img-$kernel_version"
-    local build_count=$(cat "$BUILD_COUNT_FILE")
+    local build_count
+    build_count=$(cat "$BUILD_COUNT_FILE")
 
-    # Check if the kernel is already running or already installed
     if [ "$(uname -r)" == "$kernel_version" ]; then
         echo "The kernel $kernel_version is already running. Skipping installation."
         return
@@ -371,37 +421,30 @@ install_kernel() {
         return
     fi
 
-    # **Install kernel headers before modules_install**
     echo "Installing kernel headers..."
     sudo make headers_install INSTALL_HDR_PATH=/usr/src/linux-headers-"$kernel_version"
 
-    # Link headers to modules directory for DKMS
     echo "Linking kernel headers for DKMS..."
     sudo mkdir -p /lib/modules/"$kernel_version"
     sudo ln -sf /usr/src/linux-headers-"$kernel_version" /lib/modules/"$kernel_version"/build
     sudo ln -sf /usr/src/linux-headers-"$kernel_version" /lib/modules/"$kernel_version"/source
 
-    # Ensure modules match the saved kernel version
     echo "Stripping unneeded symbols..."
     sudo make INSTALL_MOD_STRIP=1 modules_install LOCALVERSION="-build-$build_count"
 
     echo "Installing kernel..."
     sudo make install LOCALVERSION="-build-$build_count"
 
-    # **Run DKMS manually after headers are installed**
     echo "Rebuilding DKMS modules..."
     sudo dkms autoinstall
     
-    # Get installed NVIDIA DKMS version
     nvidia_version=$(dkms status | grep -i '^nvidia/' | awk -F'[,/ ]+' '{print $2}')
-
     if [[ ! -z "$nvidia_version" ]]; then
         echo "Forcing DKMS to recognize and rebuild NVIDIA module for $kernel_version..."
         sudo dkms build -m nvidia -v $nvidia_version -k $kernel_version
         sudo dkms install -m nvidia -v $nvidia_version -k $kernel_version
     fi
 
-    # Update initramfs and bootloader
     echo "Updating initramfs and bootloader..."
     sudo update-initramfs -c -k "$kernel_version"
     sudo kernelstub -k "$kernel_image" -i "$initrd_image"
@@ -409,11 +452,9 @@ install_kernel() {
 
     rm -f "$KERNEL_SRC_DIR/.built_kernel_version"
 
-    # Cleanup old builds
     cleanup_old_builds
     echo "Kernel $kernel_version installed successfully."
 
-    # Prompt to reboot
     read -p "The kernel $kernel_version has been installed. Would you like to reboot now? [Y/n]: " reboot_choice
     if [[ -z "$reboot_choice" || "$reboot_choice" =~ ^[Yy]$ ]]; then
         echo "Rebooting now..."
@@ -424,7 +465,7 @@ install_kernel() {
 }
 
 # Main
-while getopts "p:rbic:g:h" opt; do
+while getopts "p:rbimc:g:h" opt; do
     case $opt in
         p)
             KERNEL_SRC_DIR=$OPTARG
@@ -443,6 +484,10 @@ while getopts "p:rbic:g:h" opt; do
         i)
             INSTALL_KERNEL=true
             ;;
+        m)
+            SYSTEM76_KERNEL=0
+            LINUX_REPO="https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux-stable.git"
+            ;;
         c)
             MAX_CACHE=$OPTARG
             ;;
@@ -460,7 +505,6 @@ if [ -z "$KERNEL_SRC_DIR" ]; then
     usage
 fi
 
-# Save the current kernel version on the first run
 save_current_kernel
 
 if [ "$BUILD_KERNEL" == "true" ]; then
@@ -470,4 +514,3 @@ fi
 if [ "$INSTALL_KERNEL" == "true" ]; then
     install_kernel
 fi
-

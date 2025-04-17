@@ -15,6 +15,7 @@ MAX_BUILDS=3
 INSTALLED=false
 MAX_CACHE=20
 BRANCH=""
+PATCHES=()
 
 # ------------------------------------------------------------------
 # New function: get_distcc_hosts
@@ -49,7 +50,8 @@ get_remote_cores() {
 # ------------------------------------------------------------------
 # Functions
 usage() {
-    echo "Usage: $0 -p <linux-repo> [-r | -b | -i | -b -i ] [-c <max-cache> | -g <git-branch>]"
+    echo "Usage: $0 -p <linux-repo> [-r | -b | -i | -b -i ] [-c <max-cache> | -g <git-branch>] [-a <patches>]"
+    echo "  -a <patches>     : Comma-separated list of patch files to apply before building."
     echo "  -p <linux-repo> : Path to the kernel repository"
     echo "  -r              : Reset to the saved kernel version"
     echo "  -b              : Clean the build environment and build the kernel"
@@ -371,6 +373,20 @@ build_kernel() {
     kernel_version="$(make -s kernelrelease | sed 's/+//g')${suffix}"
     echo "$kernel_version" > "$KERNEL_SRC_DIR/.built_kernel_version"
     
+    # Apply patches if specified
+    if [ ${#PATCHES[@]} -gt 0 ]; then
+        echo "Applying patches..."
+        for patch_file in "${PATCHES[@]}"; do
+            if [ -f "$patch_file" ]; then
+                echo "Applying patch: $patch_file"
+                patch -p1 < "$patch_file"
+            else
+                echo "❌ Patch not found: $patch_file"
+                exit 1
+            fi
+        done
+    fi
+    
     make prepare
     make scripts
 
@@ -465,8 +481,14 @@ install_kernel() {
 }
 
 # Main
-while getopts "p:rbimc:g:h" opt; do
+while getopts "a:p:rbimc:g:h" opt; do
     case $opt in
+        a)
+            IFS=',' read -r -a RAW_PATCHES <<< "$OPTARG"
+            for p in "${RAW_PATCHES[@]}"; do
+                PATCHES+=("$(realpath "$p")")
+            done
+            ;;
         p)
             KERNEL_SRC_DIR=$OPTARG
             if [ ! -d "$KERNEL_SRC_DIR" ]; then

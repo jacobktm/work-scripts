@@ -82,6 +82,7 @@ reset_kernel() {
 
     # Delete all builds from /boot
     echo "Removing all builds from /boot..."
+    local build_numbers=( $(find "$INSTALL_DIR" -name "vmlinuz-*-build-*" 2>/dev/null | awk -F'-build-' '{print $2}' | sort -u) )
     local builds_vmlinuz=( $(find "$INSTALL_DIR" -name "vmlinuz-*-build-*" 2>/dev/null) )
     local builds_initrd=( $(find "$INSTALL_DIR" -name "initrd.img-*-build-*" 2>/dev/null) )
     local builds_sysmap=( $(find "$INSTALL_DIR" -name "System.map-*-build-*" 2>/dev/null) )
@@ -107,30 +108,35 @@ reset_kernel() {
         sudo rm -f "$build"
     done
 
-    # Remove kernel headers from /usr/src
-    echo "Removing old kernel headers..."
-    sudo rm -rf /usr/src/linux-headers-*-build-*
+    # Remove kernel headers and DKMS modules for each build
+    for build_number in "${build_numbers[@]}"; do
+        echo "Cleaning headers and DKMS modules for build-$build_number"
 
-    # Remove DKMS modules only for deleted "-build-N" kernels
-    echo "Removing outdated DKMS modules for custom built kernels..."
-    dkms status | grep "\-build-" | awk -F', ' '{print $1","$2}' | while read -r dkms_entry; do
-        module_name=$(echo "$dkms_entry" | awk -F'/' '{print $1}')
-        module_version=$(echo "$dkms_entry" | awk -F'/' '{print $2}' | cut -d ',' -f1)
-        kernel_version=$(echo "$dkms_entry" | awk -F', ' '{print $2}')
+        # Headers
+        local headers_to_remove="/usr/src/linux-headers-*build-$build_number"
+        if ls $headers_to_remove 1>/dev/null 2>&1; then
+            echo "Removing kernel headers: $headers_to_remove"
+            sudo rm -rf $headers_to_remove
+        fi
 
-        # Only process kernels matching "-build-N"
-        if [[ "$kernel_version" == *"-build-"* ]]; then
-            # Remove only if the kernel version is no longer installed
-            if ! ls "$INSTALL_DIR/vmlinuz-$kernel_version" &>/dev/null; then
+        # DKMS modules
+        dkms status | grep "build-$build_number" | while read -r dkms_entry; do
+            module_name=$(echo "$dkms_entry" | awk -F'/' '{print $1}')
+            module_version=$(echo "$dkms_entry" | awk -F'/' '{print $2}' | cut -d ',' -f1)
+            kernel_version=$(echo "$dkms_entry" | awk -F', ' '{print $2}')
+            if [[ "$kernel_version" == *"build-$build_number" ]]; then
                 echo "Removing DKMS module: $module_name/$module_version for $kernel_version"
                 sudo dkms remove -m "$module_name" -v "$module_version" -k "$kernel_version" --quiet
             fi
+        done
+
+        # Remove module files from /lib/modules
+        local modules_to_remove="/lib/modules/*build-$build_number"
+        if ls $modules_to_remove 1>/dev/null 2>&1; then
+            echo "Removing kernel modules: $modules_to_remove"
+            sudo rm -rf $modules_to_remove
         fi
     done
-
-    # Remove module files from /lib/modules
-    echo "Removing old kernel modules..."
-    sudo rm -rf /lib/modules/*-build-*
 
     # Delete previous files from the UUID-based directory
     local efi_dir=$(sudo find /boot/efi/EFI -type d -name "Pop_OS-*" 2>/dev/null)

@@ -17,32 +17,90 @@ mkcd ()
   mkdir -p -- "$1" && cd -P -- "$1"
 }
 
-full-upgrade ()
-{
-    path_to_add="$HOME/.local/bin"
+full-upgrade() {
+    local path_to_add="$HOME/.local/bin"
+    local tmp_update tmp_upgrade
 
-    if [ $(echo $PATH | grep -c $path_to_add) -eq 0 ]; then
+    # ─────────────────────────────────────────────────────────────────────
+    # 1) Ensure ~/.local/bin is in PATH (and in shell rc files)
+    # ─────────────────────────────────────────────────────────────────────
+    if ! echo "$PATH" | grep -q "$path_to_add"; then
         echo "$path_to_add is not in PATH"
-        if [ $(grep -c "$path_to_add" $HOME/.bashrc) -eq 0 ]; then
-            echo PATH=$path_to_add:$PATH >> $HOME/.bashrc
+        # bashrc
+        if ! grep -q "PATH=$path_to_add" "$HOME/.bashrc"; then
+            echo "PATH=$path_to_add:\$PATH" >> "$HOME/.bashrc"
         fi
-        if [ -e .zshrc ]; then
-            if [ $(grep -c "$path_to_add" $HOME/.zshrc) -eq 0 ]; then
-                echo PATH=$path_to_add:$PATH >> $HOME/.zshrc
-            fi
+        # zshrc
+        if [ -e "$HOME/.zshrc" ] && ! grep -q "PATH=$path_to_add" "$HOME/.zshrc"; then
+            echo "PATH=$path_to_add:\$PATH" >> "$HOME/.zshrc"
         fi
-        PATH=$path_to_add:$PATH
+        export PATH="$path_to_add:$PATH"
     fi
-    until apt_command update
-    do
+
+    # ─────────────────────────────────────────────────────────────────────
+    # 2) Loop on `apt update` until it succeeds (auto‑fixing dpkg if needed)
+    # ─────────────────────────────────────────────────────────────────────
+    tmp_update=$(mktemp)
+    set -o pipefail
+    while true; do
+        apt_command update 2>&1 | tee "$tmp_update"
+        if [ $? -eq 0 ]; then
+            break
+        fi
+
+        if grep -q "dpkg was interrupted" "$tmp_update"; then
+            echo "→ Detected interrupted dpkg during update; running 'sudo dpkg --configure -a'…"
+            sudo dpkg --configure -a
+            continue
+        fi
+
+        echo "→ apt update failed for another reason; retrying in 1s…"
         sleep 1
     done
-    apt_command full-upgrade -y --allow-downgrades
+    rm -f "$tmp_update"
+
+    # ─────────────────────────────────────────────────────────────────────
+    # 3) Loop on `apt full-upgrade` until it succeeds (auto‑fixing dpkg)
+    # ─────────────────────────────────────────────────────────────────────
+    tmp_upgrade=$(mktemp)
+    while true; do
+        apt_command full-upgrade -y --allow-downgrades 2>&1 | tee "$tmp_upgrade"
+        if [ $? -eq 0 ]; then
+            break
+        fi
+
+        if grep -q "dpkg was interrupted" "$tmp_upgrade"; then
+            echo "→ Detected interrupted dpkg during full-upgrade; running 'sudo dpkg --configure -a'…"
+            sudo dpkg --configure -a
+            continue
+        fi
+
+        echo "→ full-upgrade failed for another reason; aborting."
+        rm -f "$tmp_upgrade"
+        return 1
+    done
+    rm -f "$tmp_upgrade"
+
+    # ─────────────────────────────────────────────────────────────────────
+    # 4) Autoremove and then prompt if reboot is needed
+    # ─────────────────────────────────────────────────────────────────────
     apt_command autoremove -y
+
     ./check-needrestart.sh
     if [ $? -gt 0 ]; then
-        systemctl reboot -i
+        printf "A reboot is recommended. Reboot now? [y/N] "
+        read answer
+        case "$answer" in
+            [Yy]|[Yy][Ee][Ss])
+                echo "Rebooting…"
+                systemctl reboot -i
+                ;;
+            *)
+                echo "Skipping reboot. Remember to reboot later if necessary."
+                ;;
+        esac
     fi
+    set +o pipefail
 }
 
 speed-test ()

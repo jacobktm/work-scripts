@@ -191,7 +191,17 @@ if [ -e $SCRIPT_DIR/check-needrestart.sh ]; then
     if [ $REBOOT -eq 1 ]; then
         $SCRIPT_DIR/check-needrestart.sh
         if [ $? -eq 0 ]; then
-            systemctl reboot -i
+            printf "A reboot is recommended. Reboot now? [y/N] "
+            read answer
+            case "$answer" in
+                [Yy]|[Yy][Ee][Ss])
+                    echo "Rebooting…"
+                    systemctl reboot -i
+                    ;;
+                *)
+                    echo "Skipping reboot. Remember to reboot later if necessary."
+                    ;;
+            esac
         fi
     fi
 fi

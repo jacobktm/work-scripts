@@ -87,7 +87,7 @@ full-upgrade() {
     apt_command autoremove -y
 
     ./check-needrestart.sh
-    if [ $? -gt 0 ]; then
+    if [ $? -eq 0 ]; then
         printf "A reboot is recommended. Reboot now? [y/N] "
         read answer
         case "$answer" in

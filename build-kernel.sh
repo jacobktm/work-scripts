@@ -24,7 +24,7 @@ PATCHES=()
 # ------------------------------------------------------------------
 get_distcc_hosts() {
     local json_output
-    json_output=$(curl -s http://10.17.89.69:50000/systems)
+    json_output=$(curl -s --connect-timeout 10 http://10.17.89.69:50000/systems)
     if command -v jq >/dev/null 2>&1; then
         # Use jq to extract each ip and append "/4"
          echo $(echo "$json_output" | jq -r '.systems[] | "\(.hostname)/\(.info.cores // "4")"')
@@ -36,7 +36,7 @@ get_distcc_hosts() {
 
 get_remote_cores() {
     local json_output
-    json_output=$(curl -s http://10.17.89.69:50000/systems)
+    json_output=$(curl -s --connect-timeout 10 http://10.17.89.69:50000/systems)
     if command -v jq >/dev/null 2>&1; then
         # Use jq to extract the "cores" value from each entry under "info"
         # If "cores" is missing, default to "0".

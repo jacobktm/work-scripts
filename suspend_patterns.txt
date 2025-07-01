@@ -12,3 +12,4 @@ gnome-shell.*GNOME Shell started at
 gnome-shell.*Unset XDG_SESSION_ID
 gnome-shell.*clutter_actor_iter_next: assertion 'ri->age == ri->root->priv->age' failed
 gsd-power.*Error setting property 'PowerSaveMode' on interface org\.gnome\.Mutter\.DisplayConfig: .* (.*)
+gnome-shell.*Failed to set RT scheduler: Operation not permitted

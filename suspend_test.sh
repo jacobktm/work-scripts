@@ -1,51 +1,72 @@
-#!/bin/bash
-set -e
+#!/usr/bin/env bash
+set -euo pipefail
 
-SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-
-# Persistent marker file (stored in $HOME so it survives reboot)
+### ─── Config ────────────────────────────────────────────────────────────────
+SCRIPT="$(readlink -f "$0")"
+SCRIPT_DIR="$(dirname "$SCRIPT")"
 DUMMY_FILE="$HOME/.suspend_test.marker"
 
-# Path to the file containing failure patterns (one per line), located alongside this script
-PATTERN_FILE="$HOME/suspend_patterns.txt"
-
-# Ensure the pattern file exists.
-if [ ! -f "$PATTERN_FILE" ]; then
-    cp "$SCRIPT_DIR/suspend_patterns.txt" "$HOME"
+# Now point at the patterns file in the script’s directory
+PATTERN_FILE="$SCRIPT_DIR/suspend_patterns.txt"
+if [[ ! -f "$PATTERN_FILE" ]]; then
+  echo "ERROR: patterns file not found at $PATTERN_FILE" >&2
+  exit 1
 fi
 
-if [ ! -f "$DUMMY_FILE" ]; then
-    # First run: marker file does not exist.
-    touch "$DUMMY_FILE"
-    
-    # Run the automated suspend test script (assumes 'sustest' is available in PATH)
-    sleep 30
-    sustest 5
-    
-    # Reboot the system after the suspend test.
-    sleep 15
-    sudo systemctl reboot -i
+# Suspend count comes from ~/suspend_count if present, otherwise 300
+SUSPEND_COUNT_FILE="$HOME/suspend_count"
+if [[ -f "$SUSPEND_COUNT_FILE" ]]; then
+  read -r SUSTEST_COUNT < "$SUSPEND_COUNT_FILE"
 else
-    # Second run: marker file exists, so we have rebooted after the suspend test.
-    rm -f "$DUMMY_FILE"
-    
-    # Get the logs from the previous boot.
-    # First, verify that the fwts marker exists at least once.
-    if ! journalctl -b -1 | grep -q "fwts: Starting fwts suspend"; then
-         echo "FAILED"
-         exit 0
-    fi
-    
-    # Extract the log section starting at the first occurrence of the marker.
-    LOG_SECTION=$(journalctl -b -1 | sed -n '/fwts: Starting fwts suspend/,$p')
-    
-    # Now search the extracted log section for any failure patterns.
-    if echo "$LOG_SECTION" | grep -E -f "$PATTERN_FILE" > /dev/null; then
-         echo "$LOG_SECTION" | grep -E -f "$PATTERN_FILE" > "$HOME/Desktop/errors"
-         rm -f "$PATTERN_FILE"
-         echo "FAILED"
-    else
-         echo "PASSED"
-    fi
+  SUSTEST_COUNT=300
 fi
 
+SCREEN_SESSION="journal_monitor"
+PASS_MARKER="$HOME/suspend_pass.marker"
+FAIL_MARKER="$HOME/suspend_fail.marker"
+
+### ─── Live journal monitor ─────────────────────────────────────────────────
+monitor_failures() {
+  journalctl --since now -f -o short-precise | while IFS= read -r line; do
+    if echo "$line" | grep -E -f "$PATTERN_FILE" >/dev/null; then
+      echo "[$(date +'%F %T')] FAIL: detected error after suspend: $line"
+      touch "$FAIL_MARKER"
+      sudo systemctl reboot -i
+    fi
+  done
+}
+
+### ─── Main workflow ─────────────────────────────────────────────────────────
+if [[ ! -f "$DUMMY_FILE" ]]; then
+  # ── FIRST RUN ──────────────────────────────────────────────────────────────
+  rm -f "$PASS_MARKER" "$FAIL_MARKER"
+  touch "$DUMMY_FILE"
+
+  # start the monitor in a detached screen session
+  screen -dmS "$SCREEN_SESSION" bash -lc "source '$SCRIPT'; monitor_failures"
+
+  sleep 30
+  if sudo sustest "$SUSTEST_COUNT"; then
+    touch "$PASS_MARKER"
+    screen -S "$SCREEN_SESSION" -X quit || true
+  fi
+
+  sleep 15
+  sudo systemctl reboot -i
+
+else
+  # ── SECOND RUN (after reboot) ──────────────────────────────────────────────
+  rm -f "$DUMMY_FILE"
+  screen -S "$SCREEN_SESSION" -X quit || true
+
+  if [[ -f "$FAIL_MARKER" ]]; then
+    echo "FAILED"
+    exit 1
+  elif [[ -f "$PASS_MARKER" ]]; then
+    echo "PASSED"
+    exit 0
+  else
+    echo "ERROR: no result marker found"
+    exit 2
+  fi
+fi

@@ -1,0 +1,25 @@
+kernel: sysrq: This sysrq operation is disabled\.
+kernel: sysrq: Emergency Sync
+kernel: sysrq: Emergency Remount R/O
+hidpi-daemon\.desktop.*ERROR\s+Error calling _run_hidpi_autoscaling\('.*'\):
+hidpi-daemon\.desktop.*Traceback \(most recent call last\):
+hidpi-daemon\.desktop.*KeyError:\s*\d+
+hidpi-daemon\.desktop.*Exception in thread.*notification_register_dbus:
+hidpi-daemon\.desktop.*gi\.repository\.GLib\.GError:.*object is already exported for the interface com\.system76\.hidpi
+gsd-color.*could not find device: property match 'XRANDR_name'
+gnome-shell.*GNOME Shell started at
+gnome-shell.*Unset XDG_SESSION_ID
+gnome-shell.*clutter_actor_iter_next: assertion 'ri->age == ri->root->priv->age' failed
+gsd-power.*Error setting property 'PowerSaveMode' on interface org\.gnome\.Mutter\.DisplayConfig: .* (.*)
+gnome-shell.*Failed to set RT scheduler: Operation not permitted
+segfault
+kernel: Code:
+\*ERROR\*
+kernel: NVRM:
+gdm-.*-session.*\(.*\)
+suspend_test
+[Tt][Pp][Mm]
+ACPI Debug
+ACPI: EC
+ACPI: PM
+fwts:

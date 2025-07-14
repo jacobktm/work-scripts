@@ -69,7 +69,7 @@ gsettings set org.gnome.desktop.screensaver lock-enabled false
 gsettings set org.gnome.desktop.screensaver ubuntu-lock-on-suspend false
 
 # Launch a terminal to monitor journal logs
-sudo gnome-terminal -- bash -c 'journalctl -f | grep -i -e tpm -e suspend_test'
+sudo gnome-terminal -- bash -c 'journalctl -f | tee ./sustest_journal | grep -E -f ./sustest_patterns.txt'
 
 if [ "$use_rtc" -eq 1 ]; then
   echo "Using RTC method for suspend test (bypassing rtcwake)..."

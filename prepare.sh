@@ -149,6 +149,8 @@ if [ -e ${SCRIPT_DIR}/suspend.sh ]; then
     sed -i "s|\./install\.sh|${SCRIPT_DIR}/install.sh|g" ${SCRIPT_DIR}/suspend.sh
     sed -i "s|\./count|${SCRIPT_DIR}/count|g" ${SCRIPT_DIR}/suspend.sh
     sed -i "s|\./resume-hook\.sh|${SCRIPT_DIR}/resume-hook.sh|g" ${SCRIPT_DIR}/suspend.sh
+    sed -i "s|\./sustest_patterns\.txt|${SCRIPT_DIR}/sustest_patterns.txt|g" ${SCRIPT_DIR}/suspend.sh
+    sed -i "s|\./sustest_journal|${HOME}/sustest_journal|g" ${SCRIPT_DIR}/suspend.sh
     if [ -e sustest ]; then
         rm -rvf sustest
     fi

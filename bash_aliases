@@ -306,7 +306,7 @@ mst ()
 
 drain-bat ()
 {
-    ./install.sh build-dep linux-system76
+    ./install.sh -b linux-system76
     ./install.sh devscripts debhelper
     # Battery threshold (percent) at which we stop rebuilds / start charging
     CHARGE_THRESHOLD=5

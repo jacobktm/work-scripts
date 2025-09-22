@@ -310,6 +310,8 @@ drain-bat ()
     ./install.sh devscripts debhelper
     # Battery threshold (percent) at which we stop rebuilds / start charging
     CHARGE_THRESHOLD=5
+    # Sudoers file to allow running rtcwake without password during the test
+    SUDOERS_FILE="/etc/sudoers.d/drain-bat-rtcwake.conf"
     # Decide which branch to use: use master_jammy on jammy systems, master otherwise
     BRANCH="master"
     if grep -qi "jammy" /etc/os-release 2>/dev/null; then
@@ -351,6 +353,11 @@ drain-bat ()
         AUTOSTART_DESKTOP="$HOME/.config/autostart/drain-bat-autostart.desktop"
         if [ -f "$AUTOSTART_DESKTOP" ]; then
             rm -f "$AUTOSTART_DESKTOP"
+        fi
+        # Also attempt to remove the temporary sudoers file if it exists
+        if [ -f "$SUDOERS_FILE" ]; then
+            sudo rm -f "$SUDOERS_FILE" || true
+            # force sudoers reload by touching /etc/hosts (no-op) or via visudo check
         fi
     fi
     HS100_IP=""
@@ -398,7 +405,13 @@ drain-bat ()
             # tests continue automatically after reboot. The autostart script will remove
             # itself when it runs on boot.
             if [ $RESUME -eq 0 ]; then
-            sudo rtcwake -m mem -l -s 930
+                # Create a temporary sudoers file so rtcwake can be invoked without password
+                if [ ! -f "$SUDOERS_FILE" ]; then
+                    echo "$SUDOERS_FILE does not exist; creating temporary sudoers entry"
+                    sudo sh -c "echo '$(whoami) ALL=(root) NOPASSWD: /usr/sbin/rtcwake' > $SUDOERS_FILE"
+                    sudo chmod 0440 "$SUDOERS_FILE" || true
+                fi
+                sudo rtcwake -m mem -l -s 930
                 AUTOSTART_DIR="$HOME/.config/autostart"
                 AUTOSTART_DESKTOP="$AUTOSTART_DIR/drain-bat-autostart.desktop"
                 AUTOSTART_SCRIPT="$HOME/.local/bin/drain-bat-autostart.sh"
@@ -459,6 +472,11 @@ Comment=Resume drain-bat tests after reboot
 EOF
                 chmod +x "$AUTOSTART_DESKTOP"
             fi
+        fi
+        # Ensure rtcwake can be called without password here as well (resume path may call this)
+        if [ ! -f "$SUDOERS_FILE" ]; then
+            sudo sh -c "echo '$(whoami) ALL=(root) NOPASSWD: /usr/sbin/rtcwake' > $SUDOERS_FILE"
+            sudo chmod 0440 "$SUDOERS_FILE" || true
         fi
         sudo rtcwake -m mem -l -s 930
         LAST_CHARGE=0
@@ -541,6 +559,10 @@ EOF
             fi
             if [ $CHARGE -eq 100 ]
             then
+                # Cleanup temporary sudoers file if present
+                if [ -f "$SUDOERS_FILE" ]; then
+                    sudo rm -f "$SUDOERS_FILE" || true
+                fi
                 break
             fi
             sleep 1

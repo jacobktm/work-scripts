@@ -419,8 +419,8 @@ drain-bat ()
             fi
             popd >/dev/null
         else
-            git clone --branch "$BRANCH" --single-branch https://github.com/pop-os/linux.git || \
-                git clone https://github.com/pop-os/linux.git
+            git clone --branch "$BRANCH" --single-branch --depth 1 https://github.com/pop-os/linux.git || \
+                git clone --depth 1 https://github.com/pop-os/linux.git
         fi
     }
     # Decide which branch to use: use master_jammy on jammy systems, master otherwise

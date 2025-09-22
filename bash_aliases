@@ -554,6 +554,8 @@ EOF
   # ---------------- Phase B: after reboot ----------------
   _log "Phase B: resume…"
   # First thing: immediate suspend/wake test using rtc alarm + systemd
+  sync
+  sleep 30
   suspend_with_rtc 930
 
   # Hydrate plug IP

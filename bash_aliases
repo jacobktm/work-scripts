@@ -437,7 +437,7 @@ suspend_with_rtc () {
   systemctl suspend -i
 }
 
-# ---------- main drain-bat function (refactored to use helpers) ----------
+# ---------- main drain-bat function (stress 10m → rebuild → stress-until-threshold) ----------
 drain-bat () {
   set -euo pipefail
 
@@ -471,6 +471,27 @@ drain-bat () {
   }
   battery_status()   { cat /sys/class/power_supply/BAT0/status 2>/dev/null || echo "Unknown"; }
   battery_capacity() { cat /sys/class/power_supply/BAT0/capacity 2>/dev/null || echo "0";      }
+
+  ensure_linux_repo() {
+    local BRANCH="$1"
+    if [ -d linux ]; then
+      ( cd linux && git fetch --all --prune
+        if git show-ref --verify --quiet "refs/heads/$BRANCH"; then
+          git checkout "$BRANCH" || true
+          git pull --ff-only || true
+        else
+          if git ls-remote --heads origin "$BRANCH" | grep -q "$BRANCH"; then
+            git checkout -b "$BRANCH" "origin/$BRANCH" || true
+          else
+            git checkout master || true
+            git pull --ff-only || true
+          fi
+        fi )
+    else
+      git clone --branch "$BRANCH" --single-branch --depth 1 https://github.com/pop-os/linux.git \
+      || git clone --depth 1 https://github.com/pop-os/linux.git
+    fi
+  }
 
   write_autostart () {
     local ip="$1"
@@ -533,7 +554,10 @@ EOF
     ./install.sh devscripts debhelper || true
     ./install.sh stress-ng xdotool || true
 
-    # HS100 detect + pre-cut AC if on mains so discharge starts next phase
+    local BRANCH="master"
+    if grep -qi "jammy" /etc/os-release 2>/dev/null; then BRANCH="master_jammy"; fi
+    ensure_linux_repo "$BRANCH"
+
     ensure_hs100_repo
     if [ "$SMART_PLUG" -eq 0 ]; then
       HS100_IP="$(discover_hs100_ip "")"; [ -n "$HS100_IP" ] && SMART_PLUG=1
@@ -546,52 +570,95 @@ EOF
     write_autostart "$HS100_IP"
     _log "Rebooting to enter Phase B…"
     sync
-    # keep sudoers + autologin; do not restore gsettings yet
     systemctl reboot -i
     return 0
   fi
 
   # ---------------- Phase B: after reboot ----------------
   _log "Phase B: resume…"
-  # First thing: immediate suspend/wake test using rtc alarm + systemd
-  sync
-  sleep 30
-  suspend_with_rtc 930
 
-  # Hydrate plug IP
+  # Immediate suspend/wake test using RTC alarm + systemd
+  sync; sleep 10
+  suspend_with_rtc 930
+  sleep 5
+
+  # Hydrate plug IP if cached
   [ -z "${HS100_IP:-}" ] && [ -f "$HS100_CACHE_FILE" ] && { HS100_IP="$(cat "$HS100_CACHE_FILE" || true)"; [ -n "$HS100_IP" ] && SMART_PLUG=1; }
 
+  # State machine flags for one full cycle while > threshold:
+  #  1) STRESS10 (10-minute stress), then
+  #  2) BUILD (linux/rebuild.sh), then
+  #  3) STRESS_UNTIL_THRESHOLD (long stress until <= threshold)
+  local STRESS10_STARTED=0
+  local STRESS10_DONE=0
+  local BUILD_STARTED=0
+  local LONG_STRESS_STARTED=0
+
   local LAST_CHARGE=0
+
   while [ -d /sys/class/power_supply/BAT0 ]; do
     local STATUS="$(battery_status)"
     local CHARGE="$(battery_capacity)"
 
-    # simple discharge workload
-    if [ "$STATUS" = "Discharging" ] && ! pgrep -x stress-ng >/dev/null; then
-      ( bash -c "stress-ng -c 0 -m 0" ) &
-      # stop after 10m or at threshold
-      local t0="$(date +%s)"
-      while pgrep -x stress-ng >/dev/null; do
-        CHARGE="$(battery_capacity)"
-        local elapsed="$(( $(date +%s) - t0 ))"
-        [ "$elapsed" -ge 600 ] || [ "$CHARGE" -le "$CHARGE_THRESHOLD" ] && pkill -x stress-ng || true
-        sleep 1
-      done
+    # ---- If we hit threshold or go on AC, stop workloads as needed ----
+    if [ "$CHARGE" -le "$CHARGE_THRESHOLD" ] || [ "$STATUS" != "Discharging" ]; then
+      # smart plug on at/below threshold
+      if [ "$CHARGE" -le "$CHARGE_THRESHOLD" ] && [ "$SMART_PLUG" -eq 1 ]; then
+        ./hs100/hs100.sh -i "$HS100_IP" on || true
+        [ -f "$HS100_CACHE_FILE" ] && rm -f "$HS100_CACHE_FILE" || true
+      fi
+      # stop stress and rebuild if running
+      pkill -x stress-ng >/dev/null 2>&1 || true
+      pkill -TERM -f "/linux/rebuild.sh" >/dev/null 2>&1 || true
+      pkill -TERM -f "make .* -C" >/dev/null 2>&1 || true
+      sleep 1
+      pkill -KILL -f "/linux/rebuild.sh" >/dev/null 2>&1 || true
+      pkill -KILL -f "make .* -C" >/dev/null 2>&1 || true
     fi
 
-    # smart plug on at threshold
-    if [ "$SMART_PLUG" -eq 1 ] && [ "$CHARGE" -le "$CHARGE_THRESHOLD" ]; then
-      ./hs100/hs100.sh -i "$HS100_IP" on || true
-      [ -f "$HS100_CACHE_FILE" ] && rm -f "$HS100_CACHE_FILE" || true
+    # ---- Only orchestrate the cycle while discharging and above threshold ----
+    if [ "$STATUS" = "Discharging" ] && [ "$CHARGE" -gt "$CHARGE_THRESHOLD" ]; then
+
+      # 1) Start 10-minute stress if not started or done
+      if [ "$STRESS10_DONE" -eq 0 ]; then
+        if [ "$STRESS10_STARTED" -eq 0 ]; then
+          STRESS10_STARTED=1
+          # 10-minute stress with timeout; auto-exits after 600s
+          $(bash ./terminal.sh --name=stress10 --title=stress10) \
+            bash -lc 'stress-ng -c 0 -m 0 --timeout 600s' &
+        fi
+        # When the 10-minute stress finishes, mark done
+        if ! pgrep -f "stress-ng -c 0 -m 0 --timeout 600s" >/dev/null 2>&1; then
+          # It either finished or never started; if charge still > threshold, mark done
+          STRESS10_DONE=1
+        fi
+
+      # 2) Start kernel rebuild after stress10 completes
+      elif [ "$BUILD_STARTED" -eq 0 ]; then
+        BUILD_STARTED=1
+        $(bash ./terminal.sh --name=kernel-rebuild --title=kernel-rebuild) \
+          bash -lc 'cd "$OLDPWD/linux" 2>/dev/null || cd "./linux"; ./rebuild.sh; echo; echo "rebuild.sh finished. Press Enter to close."; read' &
+
+      # 3) If build has finished and we’re still above threshold, start long stress (until threshold)
+      else
+        # build considered running if either rebuild.sh or make is seen
+        if ! pgrep -f "/linux/rebuild.sh" >/dev/null 2>&1 && ! pgrep -f "make .* -C" >/dev/null 2>&1; then
+          if [ "$LONG_STRESS_STARTED" -eq 0 ] && ! pgrep -x stress-ng >/dev/null 2>&1; then
+            LONG_STRESS_STARTED=1
+            $(bash ./terminal.sh --name=stress-until --title=stress-until-threshold) \
+              bash -lc 'stress-ng -c 0 -m 0' &
+          fi
+        fi
+      fi
     fi
 
-    # progress echo
+    # ---- Progress echo (only on change) ----
     if [ "$LAST_CHARGE" -ne "${CHARGE:-0}" ]; then
       LAST_CHARGE="$CHARGE"
       echo "$CHARGE"
     fi
 
-    # done?
+    # ---- Done? ----
     if [ "${CHARGE:-0}" -ge 100 ]; then
       _log "Battery full. Cleaning up…"
       remove_sudoers_if_present
@@ -600,8 +667,6 @@ EOF
       break
     fi
 
-    # optional additional sleep cycles:
-    # suspend_with_rtc 930
     sleep 1
   done
 }

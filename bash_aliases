@@ -318,26 +318,7 @@ drain-bat ()
         BRANCH="master_jammy"
     fi
 
-    # Clone or update the linux repo on the chosen branch. If branch doesn't exist remotely, fall back to master.
-    if [ -d linux ]; then
-        pushd linux >/dev/null
-        git fetch --all --prune
-        if git show-ref --verify --quiet "refs/heads/$BRANCH"; then
-            git checkout "$BRANCH"
-            git pull --ff-only || true
-        else
-            if git ls-remote --heads origin "$BRANCH" | grep -q "$BRANCH"; then
-                git checkout -b "$BRANCH" "origin/$BRANCH" || true
-            else
-                git checkout master || true
-                git pull --ff-only || true
-            fi
-        fi
-        popd >/dev/null
-    else
-        git clone --branch "$BRANCH" --single-branch https://github.com/pop-os/linux.git 2>/dev/null || \
-            git clone https://github.com/pop-os/linux.git
-    fi
+    git clone --branch "$BRANCH" --single-branch https://github.com/pop-os/linux.git
     # Argument parsing: support optional --resume flag (run after reboot)
     RESUME=0
     SMART_PLUG=0

@@ -306,8 +306,8 @@ mst ()
 
 drain-bat ()
 {
-    ./install build-dep linux-system76
-    ./install devscripts debhelper
+    ./install.sh build-dep linux-system76
+    ./install.sh devscripts debhelper
     # Battery threshold (percent) at which we stop rebuilds / start charging
     CHARGE_THRESHOLD=5
     # Decide which branch to use: use master_jammy on jammy systems, master otherwise
@@ -398,6 +398,7 @@ drain-bat ()
             # tests continue automatically after reboot. The autostart script will remove
             # itself when it runs on boot.
             if [ $RESUME -eq 0 ]; then
+            sudo rtcwake -m mem -l -s 930
                 AUTOSTART_DIR="$HOME/.config/autostart"
                 AUTOSTART_DESKTOP="$AUTOSTART_DIR/drain-bat-autostart.desktop"
                 AUTOSTART_SCRIPT="$HOME/.local/bin/drain-bat-autostart.sh"

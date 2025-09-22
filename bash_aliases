@@ -439,8 +439,6 @@ suspend_with_rtc () {
 
 # ---------- main drain-bat function (stress 10m → rebuild → stress-until-threshold) ----------
 drain-bat () {
-  set -euo pipefail
-
   # Constants/defaults
   readonly CHARGE_THRESHOLD="${CHARGE_THRESHOLD:-5}"
   readonly SUDOERS_FILE="/etc/sudoers.d/drain-bat-rtcwake"

@@ -311,14 +311,55 @@ drain-bat ()
     # Battery threshold (percent) at which we stop rebuilds / start charging
     CHARGE_THRESHOLD=5
     # Sudoers file to allow running rtcwake without password during the test
-    SUDOERS_FILE="/etc/sudoers.d/drain-bat-rtcwake.conf"
+    SUDOERS_FILE="/etc/sudoers.d/drain-bat-rtcwake"
+    # Cache dir for HS100 IP persistence
+    HS100_CACHE_DIR="$HOME/.cache/drain-bat"
+    HS100_CACHE_FILE="$HS100_CACHE_DIR/hs100_ip"
+
+    # Helper: ensure sudoers entry exists (idempotent)
+    ensure_sudoers() {
+        if [ ! -f "$SUDOERS_FILE" ]; then
+            sudo sh -c "printf '%s ALL=(root) NOPASSWD: /usr/sbin/rtcwake\n' \"$(whoami)\" > $SUDOERS_FILE"
+            sudo chmod 0440 "$SUDOERS_FILE" || true
+        fi
+    }
+
+    # Helper: ensure hs100 helper repo is present
+    ensure_hs100() {
+        if [ ! -d hs100 ]; then
+            git clone https://github.com/branning/hs100.git
+        fi
+    }
+
+    # Helper: clone or update linux repo on desired branch (fallback to master)
+    ensure_linux_repo() {
+        if [ -d linux ]; then
+            pushd linux >/dev/null
+            git fetch --all --prune
+            if git show-ref --verify --quiet "refs/heads/$BRANCH"; then
+                git checkout "$BRANCH" 2>/dev/null || true
+                git pull --ff-only || true
+            else
+                if git ls-remote --heads origin "$BRANCH" | grep -q "$BRANCH"; then
+                    git checkout -b "$BRANCH" "origin/$BRANCH" || true
+                else
+                    git checkout master || true
+                    git pull --ff-only || true
+                fi
+            fi
+            popd >/dev/null
+        else
+            git clone --branch "$BRANCH" --single-branch https://github.com/pop-os/linux.git || \
+                git clone https://github.com/pop-os/linux.git
+        fi
+    }
     # Decide which branch to use: use master_jammy on jammy systems, master otherwise
     BRANCH="master"
     if grep -qi "jammy" /etc/os-release 2>/dev/null; then
         BRANCH="master_jammy"
     fi
 
-    git clone --branch "$BRANCH" --single-branch https://github.com/pop-os/linux.git
+    ensure_linux_repo
     # Argument parsing: support optional --resume flag (run after reboot)
     RESUME=0
     SMART_PLUG=0
@@ -348,15 +389,16 @@ drain-bat ()
         HS100_IP="$1"
     fi
     ./install.sh stress-ng xdotool
+    # Ensure HS100 cache directory exists (used later)
+    if [ ! -d "$HS100_CACHE_DIR" ]; then
+        mkdir -p "$HS100_CACHE_DIR"
+    fi
     if [ -d /sys/class/power_supply/BAT0 ];
     then
         STATUS=$(cat /sys/class/power_supply/BAT0/status)
         # If no IP was provided, attempt automatic discovery using hs100.sh discover
         if [ $SMART_PLUG -eq 0 ]; then
-            # Ensure hs100 script is available
-            if [ ! -d hs100 ]; then
-                git clone https://github.com/branning/hs100.git
-            fi
+            ensure_hs100
             # hs100 discovery requires nmap
             if ! command -v nmap &>/dev/null; then
                 ./install.sh nmap
@@ -376,23 +418,16 @@ drain-bat ()
 
         if [ $SMART_PLUG -eq 1 ] && [ "$STATUS" != "Discharging" ];
         then
-            if [ ! -d hs100 ]; then
-                git clone https://github.com/branning/hs100.git
-            fi
-                ./hs100/hs100.sh${HS100_ARGS} off
+            ensure_hs100
+            ./hs100/hs100.sh${HS100_ARGS} off
             sleep 15
 
             # If this is the initial run (not a resume), create an autostart entry so the
             # tests continue automatically after reboot. The autostart script will remove
             # itself when it runs on boot.
             if [ $RESUME -eq 0 ]; then
-                # Create a temporary sudoers file so rtcwake can be invoked without password
-                if [ ! -f "$SUDOERS_FILE" ]; then
-                    echo "$SUDOERS_FILE does not exist; creating temporary sudoers entry"
-                    sudo sh -c "echo '$(whoami) ALL=(root) NOPASSWD: /usr/sbin/rtcwake' > $SUDOERS_FILE"
-                    sudo chmod 0440 "$SUDOERS_FILE" || true
-                fi
-                sudo rtcwake -m mem -l -s 930
+                # Defer creating sudoers until just before suspend/reboot; we still ensure sudoers exists
+                :
                 AUTOSTART_DIR="$HOME/.config/autostart"
                 AUTOSTART_DESKTOP="$AUTOSTART_DIR/drain-bat-autostart.desktop"
                 AUTOSTART_SCRIPT="$HOME/.local/bin/drain-bat-autostart.sh"
@@ -452,13 +487,22 @@ Name=AutoStart-drain-bat
 Comment=Resume drain-bat tests after reboot
 EOF
                 chmod +x "$AUTOSTART_DESKTOP"
+                # Flush and ensure files are present, then reboot so autostart runs on boot
+                sync
+                sleep 1
+                if [ -f "$AUTOSTART_SCRIPT" ] && [ -f "$AUTOSTART_DESKTOP" ]; then
+                    echo "Autostart files created; rebooting now to continue tests..."
+                    systemctl reboot -i
+                else
+                    echo "Autostart files missing after creation attempt; not rebooting."
+                fi
             fi
         fi
-        # Ensure rtcwake can be called without password here as well (resume path may call this)
-        if [ ! -f "$SUDOERS_FILE" ]; then
-            sudo sh -c "echo '$(whoami) ALL=(root) NOPASSWD: /usr/sbin/rtcwake' > $SUDOERS_FILE"
-            sudo chmod 0440 "$SUDOERS_FILE" || true
-        fi
+        # Ensure rtcwake can be called without password (idempotent)
+        ensure_sudoers
+        # Flush files to disk and give the session a moment to notice autostart entries
+        sync
+        sleep 1
         sudo rtcwake -m mem -l -s 930
         LAST_CHARGE=0
         clear

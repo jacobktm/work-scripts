@@ -135,8 +135,9 @@ fi
 if [ -e ${SCRIPT_DIR}/terminal.sh ]; then
     sed -i "s|\./install\.sh|${SCRIPT_DIR}/install.sh|g" ${SCRIPT_DIR}/terminal.sh
 fi
+(
+cd "$HOME/.local/bin" || exit 0
 
-pushd $HOME/.local/bin
 if [ -e ${SCRIPT_DIR}/mainline.sh ]; then
     sed -i "s|\./install\.sh|${SCRIPT_DIR}/install.sh|g" ${SCRIPT_DIR}/mainline.sh
     if [ -e setup-mainline ]; then
@@ -157,6 +158,14 @@ if [ -e ${SCRIPT_DIR}/suspend.sh ]; then
     ln -s ${SCRIPT_DIR}/suspend.sh sustest
 fi
 
+# Create a 'wastebin' link to s76-paste.sh in $HOME/.local/bin
+if [ -e ${SCRIPT_DIR}/s76-paste.sh ]; then
+    if [ -e wastebin ] || [ -L wastebin ]; then
+        rm -rvf wastebin
+    fi
+    ln -s ${SCRIPT_DIR}/s76-paste.sh wastebin
+fi
+
 if [ -e ${SCRIPT_DIR}/system76-ppa.sh ]; then
     sed -i "s|\./check-needrestart\.sh|${SCRIPT_DIR}/check-needrestart.sh|g" ${SCRIPT_DIR}/system76-ppa.sh
     if [ -e system76-ppa ]; then
@@ -164,6 +173,9 @@ if [ -e ${SCRIPT_DIR}/system76-ppa.sh ]; then
     fi
     ln -s ${SCRIPT_DIR}/system76-ppa.sh system76-ppa
 fi
+
+)
+
 if [ $INSTALL_PPA -eq 1 ]; then
     system76-ppa
 fi
@@ -188,5 +200,5 @@ if [ -e $SCRIPT_DIR/check-needrestart.sh ]; then
         fi
     fi
 fi
-popd
+
 popd

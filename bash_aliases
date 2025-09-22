@@ -308,6 +308,8 @@ drain-bat ()
 {
     ./install build-dep linux-system76
     ./install devscripts debhelper
+    # Battery threshold (percent) at which we stop rebuilds / start charging
+    CHARGE_THRESHOLD=5
     # Decide which branch to use: use master_jammy on jammy systems, master otherwise
     BRANCH="master"
     if grep -qi "jammy" /etc/os-release 2>/dev/null; then
@@ -394,13 +396,13 @@ drain-bat ()
             then
                 # Start stress-ng in a separate terminal for a fixed 10 minutes
                 $(bash ./terminal.sh --name=stress-ng --title=stress-ng) bash -c "stress-ng -c 0 -m 0" &
-                # timebox for 10 minutes (600s), but stop early if battery drops below 20%
+                # timebox for 10 minutes (600s), but stop early if battery drops below the threshold
                 stress_start=$(date +%s)
                 while true; do
                     now=$(date +%s)
                     elapsed=$((now - stress_start))
                     CHARGE=$(cat /sys/class/power_supply/BAT0/capacity)
-                    if [ "$elapsed" -ge 600 ] || [ "$CHARGE" -le 20 ]; then
+                    if [ "$elapsed" -ge 600 ] || [ "$CHARGE" -le $CHARGE_THRESHOLD ]; then
                         break
                     fi
                     sleep 1
@@ -408,7 +410,7 @@ drain-bat ()
                 # stop stress-ng
                 pkill stress-ng || true
 
-                # If we have a linux repo with a rebuild script, run it and stop if battery <= 20%
+                # If we have a linux repo with a rebuild script, run it and stop if battery <= threshold
                 if [ -d linux ] && [ -x linux/rebuild.sh ]; then
                     pushd linux >/dev/null
                     # run rebuild in its own process so we can monitor/stop it
@@ -416,7 +418,7 @@ drain-bat ()
                     REBUILD_PID=$!
                     while kill -0 "$REBUILD_PID" 2>/dev/null; do
                         CHARGE=$(cat /sys/class/power_supply/BAT0/capacity)
-                        if [ "$CHARGE" -le 20 ]; then
+                        if [ "$CHARGE" -le $CHARGE_THRESHOLD ]; then
                             # stop rebuild and its children
                             kill "$REBUILD_PID" 2>/dev/null || true
                             pkill -P "$REBUILD_PID" 2>/dev/null || true
@@ -429,9 +431,9 @@ drain-bat ()
                     wait "$REBUILD_PID" 2>/dev/null || true
                     popd >/dev/null
 
-                    # If rebuild finished and battery still >20, run stress-ng again until next condition
+                    # If rebuild finished and battery still > threshold, run stress-ng again until next condition
                     CHARGE=$(cat /sys/class/power_supply/BAT0/capacity)
-                    if [ "$CHARGE" -gt 20 ]; then
+                    if [ "$CHARGE" -gt $CHARGE_THRESHOLD ]; then
                         $(bash ./terminal.sh --name=stress-ng --title=stress-ng) bash -c "stress-ng -c 0 -m 0" &
                     fi
                 fi
@@ -441,7 +443,7 @@ drain-bat ()
                 LAST_CHARGE=$CHARGE
                 echo $CHARGE
             fi
-            if [ $SMART_PLUG -eq 1 ] && [ $CHARGE -le 20 ];
+            if [ $SMART_PLUG -eq 1 ] && [ $CHARGE -le $CHARGE_THRESHOLD ];
             then
                 ./hs100/hs100.sh${HS100_ARGS} on
             fi

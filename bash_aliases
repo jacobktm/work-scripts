@@ -315,6 +315,76 @@ drain-bat ()
     # Cache dir for HS100 IP persistence
     HS100_CACHE_DIR="$HOME/.cache/drain-bat"
     HS100_CACHE_FILE="$HS100_CACHE_DIR/hs100_ip"
+    # Disable idle suspend / display blanking / display dimming for the duration of the test
+    GSETTINGS_AVAILABLE=0
+    if command -v gsettings &>/dev/null; then
+        GSETTINGS_AVAILABLE=1
+        # Save current values so we can restore later
+        ORIG_IDLE_DELAY=$(gsettings get org.gnome.desktop.session idle-delay 2>/dev/null || echo '0')
+        ORIG_SLEEP_AC=$(gsettings get org.gnome.settings-daemon.plugins.power sleep-inactive-ac-type 2>/dev/null || echo "'nothing'")
+        ORIG_SLEEP_BATT=$(gsettings get org.gnome.settings-daemon.plugins.power sleep-inactive-battery-type 2>/dev/null || echo "'nothing'")
+        ORIG_IDLE_DIM=$(gsettings get org.gnome.settings-daemon.plugins.power idle-dim 2>/dev/null || echo false)
+        ORIG_SCREENSAVER_IDLE=$(gsettings get org.gnome.desktop.screensaver idle-activation-enabled 2>/dev/null || echo true)
+        ORIG_SCREENSAVER_LOCK=$(gsettings get org.gnome.desktop.screensaver lock-enabled 2>/dev/null || echo true)
+
+        # Apply disabling settings
+        gsettings set org.gnome.desktop.session idle-delay 0 2>/dev/null || true
+        gsettings set org.gnome.settings-daemon.plugins.power sleep-inactive-ac-type 'nothing' 2>/dev/null || true
+        gsettings set org.gnome.settings-daemon.plugins.power sleep-inactive-battery-type 'nothing' 2>/dev/null || true
+        gsettings set org.gnome.settings-daemon.plugins.power idle-dim false 2>/dev/null || true
+        gsettings set org.gnome.desktop.screensaver idle-activation-enabled false 2>/dev/null || true
+        gsettings set org.gnome.desktop.screensaver lock-enabled false 2>/dev/null || true
+    fi
+
+    # --- Enable Autologin ---
+    # Locate the GDM configuration file.
+    if [ -f /etc/gdm3/custom.conf ]; then
+        GDM_CONF="/etc/gdm3/custom.conf"
+    elif [ -f /etc/gdm/custom.conf ]; then
+        GDM_CONF="/etc/gdm/custom.conf"
+    else
+        echo "GDM configuration file not found. Autologin not enabled."
+        GDM_CONF=""
+    fi
+
+    if [ -n "$GDM_CONF" ]; then
+        # Check if AutomaticLoginEnable is already set to true.
+        if ! grep -qE "^\s*AutomaticLoginEnable\s*=\s*true" "$GDM_CONF"; then
+            echo "Enabling autologin (AutomaticLoginEnable)..."
+            sudo sed -i 's/^\s*#\?\s*AutomaticLoginEnable\s*=.*/AutomaticLoginEnable = true/' "$GDM_CONF"
+        fi
+
+        # Check if AutomaticLogin is set to the current username.
+        if ! grep -qE "^\s*AutomaticLogin\s*=\s*$USERNAME" "$GDM_CONF"; then
+            echo "Setting autologin user to $USERNAME..."
+            sudo sed -i 's/^\s*#\?\s*AutomaticLogin\s*=.*/AutomaticLogin = '"$USERNAME"'/' "$GDM_CONF"
+        fi
+    fi
+
+    # Helper to restore gsettings values (idempotent)
+    restore_gsettings() {
+        if [ "$GSETTINGS_AVAILABLE" -eq 1 ]; then
+            # Use the saved values if non-empty
+            if [ -n "$ORIG_IDLE_DELAY" ]; then
+                gsettings set org.gnome.desktop.session idle-delay $ORIG_IDLE_DELAY 2>/dev/null || true
+            fi
+            if [ -n "$ORIG_SLEEP_AC" ]; then
+                gsettings set org.gnome.settings-daemon.plugins.power sleep-inactive-ac-type $ORIG_SLEEP_AC 2>/dev/null || true
+            fi
+            if [ -n "$ORIG_SLEEP_BATT" ]; then
+                gsettings set org.gnome.settings-daemon.plugins.power sleep-inactive-battery-type $ORIG_SLEEP_BATT 2>/dev/null || true
+            fi
+            if [ -n "$ORIG_IDLE_DIM" ]; then
+                gsettings set org.gnome.settings-daemon.plugins.power idle-dim $ORIG_IDLE_DIM 2>/dev/null || true
+            fi
+            if [ -n "$ORIG_SCREENSAVER_IDLE" ]; then
+                gsettings set org.gnome.desktop.screensaver idle-activation-enabled $ORIG_SCREENSAVER_IDLE 2>/dev/null || true
+            fi
+            if [ -n "$ORIG_SCREENSAVER_LOCK" ]; then
+                gsettings set org.gnome.desktop.screensaver lock-enabled $ORIG_SCREENSAVER_LOCK 2>/dev/null || true
+            fi
+        fi
+    }
 
     # Helper: ensure sudoers entry exists (idempotent)
     ensure_sudoers() {
@@ -393,6 +463,7 @@ drain-bat ()
     if [ ! -d "$HS100_CACHE_DIR" ]; then
         mkdir -p "$HS100_CACHE_DIR"
     fi
+    
     if [ -d /sys/class/power_supply/BAT0 ];
     then
         STATUS=$(cat /sys/class/power_supply/BAT0/status)
@@ -491,7 +562,8 @@ EOF
                 sync
                 sleep 1
                 if [ -f "$AUTOSTART_SCRIPT" ] && [ -f "$AUTOSTART_DESKTOP" ]; then
-                    echo "Autostart files created; rebooting now to continue tests..."
+                    echo "Autostart files created; restoring session settings and rebooting now to continue tests..."
+                    restore_gsettings
                     systemctl reboot -i
                 else
                     echo "Autostart files missing after creation attempt; not rebooting."
@@ -588,6 +660,8 @@ EOF
                 if [ -f "$SUDOERS_FILE" ]; then
                     sudo rm -f "$SUDOERS_FILE" || true
                 fi
+                # Restore gsettings to original values
+                restore_gsettings || true
                 break
             fi
             sleep 1

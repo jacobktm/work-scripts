@@ -304,162 +304,189 @@ mst ()
     systemctl suspend -i
 }
 
-# drop this whole function in place of your current one
+# ===================== gset_helpers.sh =====================
+# Generic GNOME gsettings helpers (no drain-bat assumptions)
+
+# Pick a default state path that isn't tool-specific.
+_gset_default_state_path() {
+  local base="${XDG_CACHE_HOME:-$HOME/.cache}"
+  echo "${GSET_STATE_FILE:-$base/gsettings.state}"
+}
+
+# Save current values of keys to $1 (or default). If file already exists, do nothing
+# unless FORCE=1 (env or arg 2). Optional custom keys via array or newline list in $3.
+gset_save() {
+  command -v gsettings >/dev/null 2>&1 || return 0
+
+  local state_file="${1:-$(_gset_default_state_path)}"
+  local FORCE="${2:-${FORCE:-0}}"
+  local -a keys
+
+  if [ -n "${3:-}" ]; then
+    # If caller passed a newline-separated list, convert to array
+    # shellcheck disable=SC2206
+    keys=(${3})
+  else
+    # Default keys we commonly toggle for unattended tests
+    keys=(
+      "org.gnome.desktop.session idle-delay"
+      "org.gnome.settings-daemon.plugins.power sleep-inactive-ac-type"
+      "org.gnome.settings-daemon.plugins.power sleep-inactive-battery-type"
+      "org.gnome.settings-daemon.plugins.power idle-dim"
+      "org.gnome.desktop.screensaver idle-activation-enabled"
+      "org.gnome.desktop.screensaver lock-enabled"
+    )
+  fi
+
+  # Don't clobber an existing state unless forced.
+  if [ -f "$state_file" ] && [ "$FORCE" != "1" ]; then
+    return 0
+  fi
+
+  mkdir -p "$(dirname "$state_file")"
+
+  # Atomic write: capture to temp then move.
+  local tmp
+  tmp="$(mktemp "${state_file}.XXXXXX")" || return 1
+  : > "$tmp"
+
+  for k in "${keys[@]}"; do
+    # Format: "schema key:::value"
+    # ${k% *} => schema ; ${k##* } => key
+    echo "$k:::$(gsettings get ${k% *} ${k##* })" >> "$tmp" || true
+  done
+
+  mv -f "$tmp" "$state_file"
+}
+
+# Apply a "no idle/no lock/no auto-suspend" test profile.
+# Purely modifies; does not save anything. No-ops if gsettings missing.
+gset_apply_test() {
+  command -v gsettings >/dev/null 2>&1 || return 0
+  gsettings set org.gnome.desktop.session idle-delay 0 || true
+  gsettings set org.gnome.settings-daemon.plugins.power sleep-inactive-ac-type 'nothing' || true
+  gsettings set org.gnome.settings-daemon.plugins.power sleep-inactive-battery-type 'nothing' || true
+  gsettings set org.gnome.settings-daemon.plugins.power idle-dim false || true
+  gsettings set org.gnome.desktop.screensaver idle-activation-enabled false || true
+  gsettings set org.gnome.desktop.screensaver lock-enabled false || true
+}
+
+# Restore from $1 (or default). If the file doesn't exist, do nothing.
+gset_restore() {
+  command -v gsettings >/dev/null 2>&1 || return 0
+  local state_file="${1:-$(_gset_default_state_path)}"
+  [ -f "$state_file" ] || return 0
+
+  # shellcheck disable=SC2162
+  while IFS= read -r line; do
+    # Expect "schema key:::value"
+    local left="${line%%:::*}"
+    local val="${line#*:::}"
+    local schema="${left% *}"
+    local key="${left##* }"
+    gsettings set "$schema" "$key" "$val" || true
+  done < "$state_file"
+}
+
+# Optional convenience: restore and delete state to avoid stale restores later.
+gset_restore_and_clear() {
+  local state_file="${1:-$(_gset_default_state_path)}"
+  gset_restore "$state_file"
+  rm -f "$state_file" 2>/dev/null || true
+}
+# =================== end gset_helpers.sh ===================
+
+# ---------- GDM autologin helpers ----------
+# Can pass explicit conf path as $1; otherwise we autodetect.
+_gdm_conf_guess () {
+  if   [ -f /etc/gdm3/custom.conf ]; then echo /etc/gdm3/custom.conf
+  elif [ -f /etc/gdm/custom.conf  ]; then echo /etc/gdm/custom.conf
+  else echo ""; fi
+}
+
+autologin_enable () {
+  local conf="${1:-$(_gdm_conf_guess)}"
+  local user="${2:-${USER:-$USERNAME}}"
+  [ -n "$conf" ] || { echo "[autologin_enable] no GDM custom.conf found"; return 0; }
+  sudo install -m 0644 -b "$conf" "$conf" 2>/dev/null || true  # leave a backup with ~
+  # ensure keys exist with desired values
+  if grep -qE '^\s*AutomaticLoginEnable\s*=' "$conf"; then
+    sudo sed -i 's/^\s*AutomaticLoginEnable\s*=.*/AutomaticLoginEnable = true/' "$conf"
+  else
+    echo "AutomaticLoginEnable = true" | sudo tee -a "$conf" >/dev/null
+  fi
+  if grep -qE '^\s*AutomaticLogin\s*=' "$conf"; then
+    sudo sed -i "s/^\s*AutomaticLogin\s*=.*/AutomaticLogin = ${user}/" "$conf"
+  else
+    echo "AutomaticLogin = ${user}" | sudo tee -a "$conf" >/dev/null
+  fi
+}
+
+autologin_disable () {
+  local conf="${1:-$(_gdm_conf_guess)}"
+  [ -n "$conf" ] || return 0
+  sudo install -m 0644 -b "$conf" "$conf" 2>/dev/null || true
+  # set enable=false and comment out AutomaticLogin user line (or blank it)
+  if grep -qE '^\s*AutomaticLoginEnable\s*=' "$conf"; then
+    sudo sed -i 's/^\s*AutomaticLoginEnable\s*=.*/AutomaticLoginEnable = false/' "$conf"
+  else
+    echo "AutomaticLoginEnable = false" | sudo tee -a "$conf" >/dev/null
+  fi
+  # comment the user line if present
+  sudo sed -i 's/^\(\s*\)AutomaticLogin\s*=.*/# \1AutomaticLogin =/' "$conf"
+}
+
+# ---------- rtc + suspend helper ----------
+suspend_with_rtc () {
+  local secs="${1:-930}"  # default ~15.5m
+  # program alarm in UTC; don’t attempt to enter suspend here
+  sudo rtcwake -m no -u -s "$secs" || {
+    echo "[suspend_with_rtc] failed to program RTC alarm" >&2
+    return 1
+  }
+  systemctl suspend -i
+}
+
+# ---------- main drain-bat function (refactored to use helpers) ----------
 drain-bat () {
-    set -euo pipefail
+  set -euo pipefail
 
-    # --------------------------- constants & defaults ---------------------------
-    readonly CHARGE_THRESHOLD="${CHARGE_THRESHOLD:-5}"  # stop rebuilds/start charging at/below
-    readonly SUDOERS_FILE="/etc/sudoers.d/drain-bat-rtcwake"
-    readonly HS100_CACHE_DIR="$HOME/.cache/drain-bat"
-    readonly HS100_CACHE_FILE="$HS100_CACHE_DIR/hs100_ip"
-    readonly AUTOSTART_DIR="$HOME/.config/autostart"
-    readonly AUTOSTART_DESKTOP="$AUTOSTART_DIR/drain-bat-autostart.desktop"
-    readonly AUTOSTART_SCRIPT="$HOME/.local/bin/drain-bat-autostart.sh"
-    readonly GSET_STATE_FILE="$HOME/.cache/drain-bat/gsettings.state"
-    readonly GDM_CONF="$( [ -f /etc/gdm3/custom.conf ] && echo /etc/gdm3/custom.conf || { [ -f /etc/gdm/custom.conf ] && echo /etc/gdm/custom.conf || echo ""; } )"
+  # Constants/defaults
+  readonly CHARGE_THRESHOLD="${CHARGE_THRESHOLD:-5}"
+  readonly SUDOERS_FILE="/etc/sudoers.d/drain-bat-rtcwake"
+  readonly HS100_CACHE_DIR="$HOME/.cache/drain-bat"
+  readonly HS100_CACHE_FILE="$HS100_CACHE_DIR/hs100_ip"
+  readonly AUTOSTART_DIR="$HOME/.config/autostart"
+  readonly AUTOSTART_DESKTOP="$AUTOSTART_DIR/drain-bat-autostart.desktop"
+  readonly AUTOSTART_SCRIPT="$HOME/.local/bin/drain-bat-autostart.sh"
 
-    # ------------------------------ helpers ------------------------------------
-    _log() { printf '[drain-bat] %s\n' "$*" >&2; }
+  _log() { printf '[drain-bat] %s\n' "$*" >&2; }
+  ensure_dirs() { mkdir -p "$HS100_CACHE_DIR" "$(dirname "$AUTOSTART_SCRIPT")" "$AUTOSTART_DIR"; }
 
-    ensure_dirs() {
-        mkdir -p "$HS100_CACHE_DIR" "$(dirname "$AUTOSTART_SCRIPT")" "$AUTOSTART_DIR"
-    }
+  ensure_sudoers() {
+    if [ ! -f "$SUDOERS_FILE" ]; then
+      _log "Creating sudoers entry for rtcwake…"
+      sudo sh -c "printf '%s ALL=(root) NOPASSWD: /usr/sbin/rtcwake\n' \"$(whoami)\" > '$SUDOERS_FILE'"
+      sudo chmod 0440 "$SUDOERS_FILE"
+    fi
+  }
+  remove_sudoers_if_present() { [ -f "$SUDOERS_FILE" ] && sudo rm -f "$SUDOERS_FILE" || true; }
 
-    ensure_sudoers() {
-        if [ ! -f "$SUDOERS_FILE" ]; then
-            _log "Creating sudoers entry for rtcwake…"
-            sudo sh -c "printf '%s ALL=(root) NOPASSWD: /usr/sbin/rtcwake\n' \"$(whoami)\" > '$SUDOERS_FILE'"
-            sudo chmod 0440 "$SUDOERS_FILE"
-        fi
-    }
+  ensure_hs100_repo() { [ -d hs100 ] || git clone https://github.com/branning/hs100.git; }
+  discover_hs100_ip() {
+    local ip="${1:-}"; [ -n "$ip" ] && { echo "$ip"; return; }
+    command -v nmap >/dev/null 2>&1 || ./install.sh nmap || true
+    ensure_hs100_repo
+    ./hs100/hs100.sh discover 2>&1 | sed -n 's/.*HS100 plugs found: \([0-9.]*\).*/\1/p' | head -n1
+  }
+  battery_status()   { cat /sys/class/power_supply/BAT0/status 2>/dev/null || echo "Unknown"; }
+  battery_capacity() { cat /sys/class/power_supply/BAT0/capacity 2>/dev/null || echo "0";      }
 
-    remove_sudoers_if_present() {
-        if [ -f "$SUDOERS_FILE" ]; then
-            _log "Removing sudoers entry…"
-            sudo rm -f "$SUDOERS_FILE" || true
-        fi
-    }
-
-    save_gsettings() {
-        ensure_dirs
-        # keys we modify
-        local keys=(
-            "org.gnome.desktop.session idle-delay"
-            "org.gnome.settings-daemon.plugins.power sleep-inactive-ac-type"
-            "org.gnome.settings-daemon.plugins.power sleep-inactive-battery-type"
-            "org.gnome.settings-daemon.plugins.power idle-dim"
-            "org.gnome.desktop.screensaver idle-activation-enabled"
-            "org.gnome.desktop.screensaver lock-enabled"
-        )
-        : > "$GSET_STATE_FILE"
-        for k in "${keys[@]}"; do
-            if command -v gsettings >/dev/null 2>&1; then
-                echo "$k:::$(gsettings get ${k% *} ${k##* })" >> "$GSET_STATE_FILE" || true
-            fi
-        done
-    }
-
-    apply_gsettings_for_test() {
-        if command -v gsettings >/dev/null 2>&1; then
-            _log "Disabling idle/sleep/lock for the test session…"
-            gsettings set org.gnome.desktop.session idle-delay 0 || true
-            gsettings set org.gnome.settings-daemon.plugins.power sleep-inactive-ac-type 'nothing' || true
-            gsettings set org.gnome.settings-daemon.plugins.power sleep-inactive-battery-type 'nothing' || true
-            gsettings set org.gnome.settings-daemon.plugins.power idle-dim false || true
-            gsettings set org.gnome.desktop.screensaver idle-activation-enabled false || true
-            gsettings set org.gnome.desktop.screensaver lock-enabled false || true
-        fi
-    }
-
-    restore_gsettings() {
-        if [ -f "$GSET_STATE_FILE" ] && command -v gsettings >/dev/null 2>&1; then
-            _log "Restoring GNOME settings…"
-            while IFS= read -r line; do
-                # "schema key:::value"
-                local left="${line%%:::*}"
-                local val="${line#*:::}"
-                local schema="${left% *}"
-                local key="${left##* }"
-                gsettings set "$schema" "$key" "$val" || true
-            done < "$GSET_STATE_FILE"
-        fi
-    }
-
-    set_gdm_autologin() {
-        if [ -n "$GDM_CONF" ]; then
-            local user="${USER:-$USERNAME}"
-            _log "Enabling GDM autologin for $user…"
-            sudo sed -i 's/^\s*#\?\s*AutomaticLoginEnable\s*=.*/AutomaticLoginEnable = true/' "$GDM_CONF"
-            # if key absent, append minimally
-            if ! grep -qE '^\s*AutomaticLoginEnable\s*=' "$GDM_CONF"; then
-                echo "AutomaticLoginEnable = true" | sudo tee -a "$GDM_CONF" >/dev/null
-            fi
-            # set user
-            if grep -qE '^\s*AutomaticLogin\s*=' "$GDM_CONF"; then
-                sudo sed -i "s/^\s*AutomaticLogin\s*=.*/AutomaticLogin = ${user}/" "$GDM_CONF"
-            else
-                echo "AutomaticLogin = ${user}" | sudo tee -a "$GDM_CONF" >/dev/null
-            fi
-        else
-            _log "GDM configuration file not found; skipping autologin."
-        fi
-    }
-
-    ensure_hs100_repo() {
-        if [ ! -d hs100 ]; then
-            _log "Cloning hs100 helper…"
-            git clone https://github.com/branning/hs100.git
-        fi
-    }
-
-    discover_hs100_ip() {
-        local ip="${1:-}"
-        if [ -n "$ip" ]; then
-            echo "$ip"
-            return 0
-        fi
-        if ! command -v nmap >/dev/null 2>&1; then
-            ./install.sh nmap || true
-        fi
-        ensure_hs100_repo
-        local out
-        out="$(./hs100/hs100.sh discover 2>&1 || true)"
-        echo "$out" | sed -n 's/.*HS100 plugs found: \([0-9.]*\).*/\1/p' | head -n1
-    }
-
-    ensure_linux_repo() {
-        local BRANCH="$1"
-        if [ -d linux ]; then
-            pushd linux >/dev/null
-            git fetch --all --prune
-            if git show-ref --verify --quiet "refs/heads/$BRANCH"; then
-                git checkout "$BRANCH" || true
-                git pull --ff-only || true
-            else
-                if git ls-remote --heads origin "$BRANCH" | grep -q "$BRANCH"; then
-                    git checkout -b "$BRANCH" "origin/$BRANCH" || true
-                else
-                    git checkout master || true
-                    git pull --ff-only || true
-                fi
-            fi
-            popd >/dev/null
-        else
-            git clone --branch "$BRANCH" --single-branch --depth 1 https://github.com/pop-os/linux.git \
-            || git clone --depth 1 https://github.com/pop-os/linux.git
-        fi
-    }
-
-    write_autostart() {
-        local ip="$1"
-        ensure_dirs
-        # cache IP for resume
-        if [ -n "$ip" ]; then
-            echo "$ip" > "$HS100_CACHE_FILE" || true
-        fi
-
-        cat > "$AUTOSTART_SCRIPT" <<'EOF'
+  write_autostart () {
+    local ip="$1"
+    ensure_dirs
+    [ -n "$ip" ] && echo "$ip" > "$HS100_CACHE_FILE" || true
+    cat > "$AUTOSTART_SCRIPT" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 AUTOSTART_DESKTOP="$HOME/.config/autostart/drain-bat-autostart.desktop"
@@ -467,7 +494,6 @@ AUTOSTART_DESKTOP="$HOME/.config/autostart/drain-bat-autostart.desktop"
 HS100_CACHE_FILE="$HOME/.cache/drain-bat/hs100_ip"
 HS100_IP=""
 [ -f "$HS100_CACHE_FILE" ] && HS100_IP="$(cat "$HS100_CACHE_FILE" || true)"
-# Try to source aliases for the function
 if [ -f "$HOME/.bash_aliases" ]; then
   if [ -n "${HS100_IP}" ]; then
     bash -ic 'source "$HOME/.bash_aliases"; drain-bat --resume "$HS100_IP"'
@@ -482,9 +508,8 @@ else
   fi
 fi
 EOF
-        chmod +x "$AUTOSTART_SCRIPT"
-
-        cat > "$AUTOSTART_DESKTOP" <<EOF
+    chmod +x "$AUTOSTART_SCRIPT"
+    cat > "$AUTOSTART_DESKTOP" <<EOF
 [Desktop Entry]
 Type=Application
 Exec=gnome-terminal -- bash -lc '$AUTOSTART_SCRIPT'
@@ -494,192 +519,100 @@ X-GNOME-Autostart-enabled=true
 Name=AutoStart-drain-bat
 Comment=Resume drain-bat tests after reboot
 EOF
-        chmod +x "$AUTOSTART_DESKTOP"
-        sync
-    }
-
-    cleanup_autostart_and_cache() {
-        [ -f "$AUTOSTART_DESKTOP" ] && rm -f "$AUTOSTART_DESKTOP" || true
-        # keep HS100 cache until we turn plug on again; then we remove it
-        true
-    }
-
-    battery_status()   { cat /sys/class/power_supply/BAT0/status 2>/dev/null || echo "Unknown"; }
-    battery_capacity() { cat /sys/class/power_supply/BAT0/capacity 2>/dev/null || echo "0";      }
-
-    wiggle_mouse_periodically() {
-        # tiny anti-idle shim in case something ignores gsettings
-        local start="$(date +%s)"
-        if command -v xdotool >/dev/null 2>&1; then
-            local now dur
-            now="$(date +%s)"; dur=$((now - start))
-            if [ "$dur" -ge 280 ]; then
-                start="$(date +%s)"
-                eval "$(xdotool getmouselocation --shell 2>/dev/null || echo X=0; echo Y=0)"
-                xdotool mousemove --sync $((X+1)) $((Y+1)) 2>/dev/null || true
-                xdotool mousemove --sync "$X" "$Y" 2>/dev/null || true
-            fi
-        fi
-    }
-
-    # ------------------------------ arg parsing --------------------------------
-    local RESUME=0
-    local SMART_PLUG=0
-    local HS100_IP="${2:-}"
-    if [ $# -gt 0 ]; then
-        case "${1:-}" in
-            --resume|--resumed) RESUME=1 ;;
-        esac
-        if [ $# -ge 2 ]; then
-            SMART_PLUG=1
-            HS100_IP="$2"
-        fi
-    fi
-
-    # ------------------------------ phase A: pre-reboot -------------------------
-    if [ "$RESUME" -eq 0 ]; then
-        _log "Phase A: preparing environment before reboot…"
-
-        ensure_dirs
-        save_gsettings
-        apply_gsettings_for_test
-        set_gdm_autologin
-
-        # base deps and tools
-        ./install.sh -b linux-system76 || true
-        ./install.sh devscripts debhelper || true
-        ./install.sh stress-ng xdotool || true
-
-        # linux branch selection
-        local BRANCH="master"
-        if grep -qi "jammy" /etc/os-release 2>/dev/null; then
-            BRANCH="master_jammy"
-        fi
-        ensure_linux_repo "$BRANCH"
-
-        # hs100 discovery / caching
-        ensure_hs100_repo
-        if [ "$SMART_PLUG" -eq 0 ]; then
-            HS100_IP="$(discover_hs100_ip "")"
-            [ -n "$HS100_IP" ] && SMART_PLUG=1
-        else
-            HS100_IP="$(discover_hs100_ip "$HS100_IP")"
-        fi
-        [ -n "$HS100_IP" ] && _log "HS100 IP: $HS100_IP"
-
-        # if on AC and we have a plug: turn it OFF so discharge can start after resume
-        if [ "$SMART_PLUG" -eq 1 ] && [ "$(battery_status)" != "Discharging" ]; then
-            _log "Cutting AC power via HS100 to start discharge after resume…"
-            ./hs100/hs100.sh -i "$HS100_IP" off || true
-            sleep 15
-        fi
-
-        # autostart to re-enter Phase B automatically
-        write_autostart "$HS100_IP"
-
-        _log "Rebooting now to continue (Phase B) after login…"
-        sync
-        restore_gsettings || true    # be polite before reboot
-        systemctl reboot -i
-        return 0
-    fi
-
-    # ------------------------------ phase B: resume -----------------------------
-    _log "Phase B: resumed after reboot. Starting test loop…"
-    cleanup_autostart_and_cache
-    ensure_sudoers
-    ensure_hs100_repo
-    command -v stress-ng >/dev/null 2>&1 || ./install.sh stress-ng || true
-    command -v xdotool  >/dev/null 2>&1 || ./install.sh xdotool  || true
-
-    # periodic suspend to memory for ~15m wall clock (930s) between cycles
-    _log "Initial rtcwake test right after reboot…"
+    chmod +x "$AUTOSTART_DESKTOP"
     sync
-    sleep 15
-    sudo rtcwake -m mem -l -s 930 || true
-    sleep 1
+  }
 
-    # rehydrate HS100 IP if not provided
-    if [ -z "${HS100_IP:-}" ] && [ -f "$HS100_CACHE_FILE" ]; then
-        HS100_IP="$(cat "$HS100_CACHE_FILE" || true)"
-        [ -n "$HS100_IP" ] && SMART_PLUG=1
+  # Args
+  local RESUME=0 SMART_PLUG=0 HS100_IP="${2:-}"
+  if [ $# -gt 0 ]; then
+    case "${1:-}" in --resume|--resumed) RESUME=1 ;; esac
+    [ $# -ge 2 ] && { SMART_PLUG=1; HS100_IP="$2"; }
+  fi
+
+  # ---------------- Phase A: pre-reboot ----------------
+  if [ "$RESUME" -eq 0 ]; then
+    _log "Phase A: pre-reboot setup…"
+    ensure_dirs
+    gset_save
+    gset_apply_test
+    autologin_enable
+    ensure_sudoers
+
+    ./install.sh -b linux-system76 || true
+    ./install.sh devscripts debhelper || true
+    ./install.sh stress-ng xdotool || true
+
+    # HS100 detect + pre-cut AC if on mains so discharge starts next phase
+    ensure_hs100_repo
+    if [ "$SMART_PLUG" -eq 0 ]; then
+      HS100_IP="$(discover_hs100_ip "")"; [ -n "$HS100_IP" ] && SMART_PLUG=1
+    else
+      HS100_IP="$(discover_hs100_ip "$HS100_IP")"
+    fi
+    [ "$SMART_PLUG" -eq 1 ] && [ "$(battery_status)" != "Discharging" ] && {
+      ./hs100/hs100.sh -i "$HS100_IP" off || true; sleep 15; }
+
+    write_autostart "$HS100_IP"
+    _log "Rebooting to enter Phase B…"
+    sync
+    # keep sudoers + autologin; do not restore gsettings yet
+    systemctl reboot -i
+    return 0
+  fi
+
+  # ---------------- Phase B: after reboot ----------------
+  _log "Phase B: resume…"
+  # First thing: immediate suspend/wake test using rtc alarm + systemd
+  suspend_with_rtc 930
+
+  # Hydrate plug IP
+  [ -z "${HS100_IP:-}" ] && [ -f "$HS100_CACHE_FILE" ] && { HS100_IP="$(cat "$HS100_CACHE_FILE" || true)"; [ -n "$HS100_IP" ] && SMART_PLUG=1; }
+
+  local LAST_CHARGE=0
+  while [ -d /sys/class/power_supply/BAT0 ]; do
+    local STATUS="$(battery_status)"
+    local CHARGE="$(battery_capacity)"
+
+    # simple discharge workload
+    if [ "$STATUS" = "Discharging" ] && ! pgrep -x stress-ng >/dev/null; then
+      ( bash -c "stress-ng -c 0 -m 0" ) &
+      # stop after 10m or at threshold
+      local t0="$(date +%s)"
+      while pgrep -x stress-ng >/dev/null; do
+        CHARGE="$(battery_capacity)"
+        local elapsed="$(( $(date +%s) - t0 ))"
+        [ "$elapsed" -ge 600 ] || [ "$CHARGE" -le "$CHARGE_THRESHOLD" ] && pkill -x stress-ng || true
+        sleep 1
+      done
     fi
 
-    local LAST_CHARGE=0
-    local start_time="$(date +%s)"
+    # smart plug on at threshold
+    if [ "$SMART_PLUG" -eq 1 ] && [ "$CHARGE" -le "$CHARGE_THRESHOLD" ]; then
+      ./hs100/hs100.sh -i "$HS100_IP" on || true
+      [ -f "$HS100_CACHE_FILE" ] && rm -f "$HS100_CACHE_FILE" || true
+    fi
 
-    while [ -d /sys/class/power_supply/BAT0 ]; do
-        wiggle_mouse_periodically
+    # progress echo
+    if [ "$LAST_CHARGE" -ne "${CHARGE:-0}" ]; then
+      LAST_CHARGE="$CHARGE"
+      echo "$CHARGE"
+    fi
 
-        local STATUS CHARGE
-        STATUS="$(battery_status)"
-        CHARGE="$(battery_capacity)"
+    # done?
+    if [ "${CHARGE:-0}" -ge 100 ]; then
+      _log "Battery full. Cleaning up…"
+      remove_sudoers_if_present
+      autologin_disable
+      gset_restore
+      break
+    fi
 
-        # start stress on discharge until threshold
-        if [ "$STATUS" = "Discharging" ] && ! pgrep -x stress-ng >/dev/null 2>&1; then
-            _log "Starting stress-ng during discharge…"
-            ( bash -c "stress-ng -c 0 -m 0" ) &
-        fi
-
-        # timebox stress to 10m or until threshold
-        if pgrep -x stress-ng >/dev/null 2>&1; then
-            local stress_start="$(date +%s)"
-            while pgrep -x stress-ng >/dev/null 2>&1; do
-                CHARGE="$(battery_capacity)"
-                local elapsed="$(( $(date +%s) - stress_start ))"
-                [ "$elapsed" -ge 600 ] || [ "$CHARGE" -le "$CHARGE_THRESHOLD" ] && pkill -x stress-ng || true
-                sleep 1
-            done
-        fi
-
-        # attempt kernel rebuild if repo + script exist and above threshold
-        if [ -d linux ] && [ -x linux/rebuild.sh ]; then
-            CHARGE="$(battery_capacity)"
-            if [ "$CHARGE" -gt "$CHARGE_THRESHOLD" ]; then
-                _log "Running linux/rebuild.sh (will stop if battery <= threshold)…"
-                pushd linux >/dev/null
-                setsid bash -c './rebuild.sh' &
-                local REBUILD_PID=$!
-                while kill -0 "$REBUILD_PID" 2>/dev/null; do
-                    CHARGE="$(battery_capacity)"
-                    if [ "$CHARGE" -le "$CHARGE_THRESHOLD" ]; then
-                        _log "Stopping rebuild at ${CHARGE}%…"
-                        kill "$REBUILD_PID" 2>/dev/null || true
-                        pkill -P "$REBUILD_PID" 2>/dev/null || true
-                        wait "$REBUILD_PID" 2>/dev/null || true
-                        break
-                    fi
-                    sleep 5
-                done
-                wait "$REBUILD_PID" 2>/dev/null || true
-                popd >/dev/null
-            fi
-        fi
-
-        # charge control via HS100
-        if [ "$SMART_PLUG" -eq 1 ] && [ "$CHARGE" -le "$CHARGE_THRESHOLD" ]; then
-            _log "Battery <= ${CHARGE_THRESHOLD}% — turning plug ON to charge…"
-            ./hs100/hs100.sh -i "$HS100_IP" on || true
-            # clear cached IP after successful ON
-            [ -f "$HS100_CACHE_FILE" ] && rm -f "$HS100_CACHE_FILE" || true
-        fi
-
-        # progress echo (only on change)
-        if [ "$LAST_CHARGE" -ne "${CHARGE:-0}" ]; then
-            LAST_CHARGE="$CHARGE"
-            echo "$CHARGE"
-        fi
-
-        # full? clean up and exit
-        if [ "${CHARGE:-0}" -ge 100 ]; then
-            _log "Battery is full. Cleaning up…"
-            remove_sudoers_if_present
-            restore_gsettings || true
-            break
-        fi
-    done
+    # optional additional sleep cycles:
+    # suspend_with_rtc 930
+    sleep 1
+  done
 }
-
 
 mem-speed ()
 {

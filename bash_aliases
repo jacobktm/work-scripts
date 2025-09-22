@@ -306,6 +306,34 @@ mst ()
 
 drain-bat ()
 {
+    ./install build-dep linux-system76
+    ./install devscripts debhelper
+    # Decide which branch to use: use master_jammy on jammy systems, master otherwise
+    BRANCH="master"
+    if grep -qi "jammy" /etc/os-release 2>/dev/null; then
+        BRANCH="master_jammy"
+    fi
+
+    # Clone or update the linux repo on the chosen branch. If branch doesn't exist remotely, fall back to master.
+    if [ -d linux ]; then
+        pushd linux >/dev/null
+        git fetch --all --prune
+        if git show-ref --verify --quiet "refs/heads/$BRANCH"; then
+            git checkout "$BRANCH"
+            git pull --ff-only || true
+        else
+            if git ls-remote --heads origin "$BRANCH" | grep -q "$BRANCH"; then
+                git checkout -b "$BRANCH" "origin/$BRANCH" || true
+            else
+                git checkout master || true
+                git pull --ff-only || true
+            fi
+        fi
+        popd >/dev/null
+    else
+        git clone --branch "$BRANCH" --single-branch https://github.com/pop-os/linux.git 2>/dev/null || \
+            git clone https://github.com/pop-os/linux.git
+    fi
     SMART_PLUG=0
     if [ $# -gt 0 ];
     then
@@ -316,10 +344,28 @@ drain-bat ()
     if [ -d /sys/class/power_supply/BAT0 ];
     then
         STATUS=$(cat /sys/class/power_supply/BAT0/status)
+        # If no IP was provided, attempt automatic discovery using hs100.sh discover
+        if [ $SMART_PLUG -eq 0 ]; then
+            # Ensure hs100 script is available
+            if [ ! -d hs100 ]; then
+                git clone https://github.com/branning/hs100.git
+            fi
+            # hs100 discovery requires nmap
+            if ! command -v nmap &>/dev/null; then
+                ./install.sh nmap
+            fi
+            DISCOVERY_OUT=$(./hs100/hs100.sh discover 2>&1 || true)
+            # Parse first IPv4 address from expected output: "HS100 plugs found: <ip>"
+            DISCOVER_IP=$(echo "$DISCOVERY_OUT" | sed -n 's/.*HS100 plugs found: \([0-9.]*\).*/\1/p')
+            if [ -n "$DISCOVER_IP" ]; then
+                SMART_PLUG=1
+                HS100_ARGS=" -i $DISCOVER_IP"
+            fi
+        fi
+
         if [ $SMART_PLUG -eq 1 ] && [ "$STATUS" != "Discharging" ];
         then
-            if [ ! -d hs100 ];
-            then
+            if [ ! -d hs100 ]; then
                 git clone https://github.com/branning/hs100.git
             fi
             ./hs100/hs100.sh${HS100_ARGS} off
@@ -346,7 +392,49 @@ drain-bat ()
             CHARGE=$(cat /sys/class/power_supply/BAT0/capacity)
             if [ "$STATUS" = "Discharging" ] && ! pgrep stress-ng &>/dev/null
             then
-                $(bash ./terminal.sh --name=stress-ng --title=stress-ng) bash -c "stress-ng -c 0 -m 0"
+                # Start stress-ng in a separate terminal for a fixed 10 minutes
+                $(bash ./terminal.sh --name=stress-ng --title=stress-ng) bash -c "stress-ng -c 0 -m 0" &
+                # timebox for 10 minutes (600s), but stop early if battery drops below 20%
+                stress_start=$(date +%s)
+                while true; do
+                    now=$(date +%s)
+                    elapsed=$((now - stress_start))
+                    CHARGE=$(cat /sys/class/power_supply/BAT0/capacity)
+                    if [ "$elapsed" -ge 600 ] || [ "$CHARGE" -le 20 ]; then
+                        break
+                    fi
+                    sleep 1
+                done
+                # stop stress-ng
+                pkill stress-ng || true
+
+                # If we have a linux repo with a rebuild script, run it and stop if battery <= 20%
+                if [ -d linux ] && [ -x linux/rebuild.sh ]; then
+                    pushd linux >/dev/null
+                    # run rebuild in its own process so we can monitor/stop it
+                    setsid bash -c './rebuild.sh' &
+                    REBUILD_PID=$!
+                    while kill -0 "$REBUILD_PID" 2>/dev/null; do
+                        CHARGE=$(cat /sys/class/power_supply/BAT0/capacity)
+                        if [ "$CHARGE" -le 20 ]; then
+                            # stop rebuild and its children
+                            kill "$REBUILD_PID" 2>/dev/null || true
+                            pkill -P "$REBUILD_PID" 2>/dev/null || true
+                            wait "$REBUILD_PID" 2>/dev/null || true
+                            break
+                        fi
+                        sleep 5
+                    done
+                    # wait for rebuild to finish if it did
+                    wait "$REBUILD_PID" 2>/dev/null || true
+                    popd >/dev/null
+
+                    # If rebuild finished and battery still >20, run stress-ng again until next condition
+                    CHARGE=$(cat /sys/class/power_supply/BAT0/capacity)
+                    if [ "$CHARGE" -gt 20 ]; then
+                        $(bash ./terminal.sh --name=stress-ng --title=stress-ng) bash -c "stress-ng -c 0 -m 0" &
+                    fi
+                fi
             fi
             if [ $LAST_CHARGE -ne $CHARGE ];
             then
@@ -356,10 +444,6 @@ drain-bat ()
             if [ $SMART_PLUG -eq 1 ] && [ $CHARGE -le 20 ];
             then
                 ./hs100/hs100.sh${HS100_ARGS} on
-            fi
-            if [ "$STATUS" != 'Discharging' ] || [ $CHARGE -le 20 ];
-            then
-                pkill stress-ng
             fi
             if [ $CHARGE -eq 100 ]
             then

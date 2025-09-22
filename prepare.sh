@@ -9,7 +9,7 @@ SKIP_PPA=0
 REBOOT=1
 PPA_INSTALLED=0
 DEBUG=0
-PKG_LIST=("vim" "htop" "git-lfs" "powertop" "acpica-tools" "efitools" "screen")
+PKG_LIST=("vim" "htop" "git-lfs" "powertop" "acpica-tools" "efitools" "screen" "nmap")
 
 pushd $SCRIPT_DIR
 

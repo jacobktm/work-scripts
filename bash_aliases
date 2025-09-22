@@ -396,34 +396,50 @@ gset_restore_and_clear() {
 }
 # =================== end gset_helpers.sh ===================
 
-_gdm_conf_guess() {
-  if   [ -f /etc/gdm3/custom.conf ]; then echo /etc/gdm3/custom.conf
-  elif [ -f /etc/gdm/custom.conf  ]; then echo /etc/gdm/custom.conf
-  else echo /etc/gdm3/custom.conf; fi
+autologin_enable () {
+  # --- Enable Autologin (your sed-based approach) ---
+  # Locate the GDM configuration file.
+  local GDM_CONF=""
+  if [ -f /etc/gdm3/custom.conf ]; then
+      GDM_CONF="/etc/gdm3/custom.conf"
+  elif [ -f /etc/gdm/custom.conf ]; then
+      GDM_CONF="/etc/gdm/custom.conf"
+  else
+      echo "GDM configuration file not found. Autologin not enabled."
+      GDM_CONF=""
+  fi
+
+  # Ensure $USERNAME exists even under 'set -u'
+  local USERNAME="${USERNAME:-$USER}"
+
+  if [ -n "$GDM_CONF" ]; then
+      # Check if AutomaticLoginEnable is already set to true.
+      if ! grep -qE "^\s*AutomaticLoginEnable\s*=\s*true" "$GDM_CONF"; then
+          echo "Enabling autologin (AutomaticLoginEnable)..."
+          sudo sed -i 's/^\s*#\?\s*AutomaticLoginEnable\s*=.*/AutomaticLoginEnable = true/' "$GDM_CONF"
+      fi
+
+      # Check if AutomaticLogin is set to the current username.
+      if ! grep -qE "^\s*AutomaticLogin\s*=\s*$USERNAME" "$GDM_CONF"; then
+          echo "Setting autologin user to $USERNAME..."
+          sudo sed -i 's/^\s*#\?\s*AutomaticLogin\s*=.*/AutomaticLogin = '"$USERNAME"'/' "$GDM_CONF"
+      fi
+  fi
 }
 
-autologin_enable() {
-  local conf="${1:-$(_gdm_conf_guess)}"
-  local user="${2:-${USER:-$USERNAME}}"
-  # first try your fast sed replacements
-  sudo sed -i -E 's/^\s*#?\s*AutomaticLoginEnable\s*=.*/AutomaticLoginEnable = true/' "$conf" || true
-  sudo sed -i -E "s/^\s*#?\s*AutomaticLogin\s*=.*/AutomaticLogin = ${user}/" "$conf" || true
-  # then ensure keys exist under [daemon]
-  sudo awk -v user="$user" '…(same awk block as above)…' "$conf" | sudo tee "$conf" >/dev/null
-}
+autologin_disable () {
+  local GDM_CONF=""
+  if [ -f /etc/gdm3/custom.conf ]; then
+      GDM_CONF="/etc/gdm3/custom.conf"
+  elif [ -f /etc/gdm/custom.conf ]; then
+      GDM_CONF="/etc/gdm/custom.conf"
+  else
+      return 0
+  fi
 
-autologin_disable() {
-  local conf="${1:-$(_gdm_conf_guess)}"
-  # set enable=false under [daemon], and comment AutomaticLogin in [daemon]
-  sudo awk '
-    BEGIN{in_d=0}
-    /^\[daemon\]\s*$/ {in_d=1; print; next}
-    /^\[/ && $0!~/^\[daemon\]/ { in_d=0; print; next }
-    {
-      if(in_d && $0 ~ /^[ \t]*AutomaticLoginEnable[ \t]*=/) { print "AutomaticLoginEnable = false"; next }
-      if(in_d && $0 ~ /^[ \t]*AutomaticLogin[ \t]*=/)       { sub(/^[ \t]*/,"# "); print; next }
-      print
-    }' "$conf" | sudo tee "$conf" >/dev/null
+  # Flip enable=false; comment out the user line (keeps prior value visible)
+  sudo sed -i 's/^\s*#\?\s*AutomaticLoginEnable\s*=.*/AutomaticLoginEnable = false/' "$GDM_CONF"
+  sudo sed -i 's/^\(\s*\)#\?\s*AutomaticLogin\s*=.*/\1# AutomaticLogin =/' "$GDM_CONF"
 }
 
 # ---------- rtc + suspend helper ----------

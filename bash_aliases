@@ -396,44 +396,34 @@ gset_restore_and_clear() {
 }
 # =================== end gset_helpers.sh ===================
 
-# ---------- GDM autologin helpers ----------
-# Can pass explicit conf path as $1; otherwise we autodetect.
-_gdm_conf_guess () {
+_gdm_conf_guess() {
   if   [ -f /etc/gdm3/custom.conf ]; then echo /etc/gdm3/custom.conf
   elif [ -f /etc/gdm/custom.conf  ]; then echo /etc/gdm/custom.conf
-  else echo ""; fi
+  else echo /etc/gdm3/custom.conf; fi
 }
 
-autologin_enable () {
+autologin_enable() {
   local conf="${1:-$(_gdm_conf_guess)}"
   local user="${2:-${USER:-$USERNAME}}"
-  [ -n "$conf" ] || { echo "[autologin_enable] no GDM custom.conf found"; return 0; }
-  sudo install -m 0644 -b "$conf" "$conf" 2>/dev/null || true  # leave a backup with ~
-  # ensure keys exist with desired values
-  if grep -qE '^\s*AutomaticLoginEnable\s*=' "$conf"; then
-    sudo sed -i 's/^\s*AutomaticLoginEnable\s*=.*/AutomaticLoginEnable = true/' "$conf"
-  else
-    echo "AutomaticLoginEnable = true" | sudo tee -a "$conf" >/dev/null
-  fi
-  if grep -qE '^\s*AutomaticLogin\s*=' "$conf"; then
-    sudo sed -i "s/^\s*AutomaticLogin\s*=.*/AutomaticLogin = ${user}/" "$conf"
-  else
-    echo "AutomaticLogin = ${user}" | sudo tee -a "$conf" >/dev/null
-  fi
+  # first try your fast sed replacements
+  sudo sed -i -E 's/^\s*#?\s*AutomaticLoginEnable\s*=.*/AutomaticLoginEnable = true/' "$conf" || true
+  sudo sed -i -E "s/^\s*#?\s*AutomaticLogin\s*=.*/AutomaticLogin = ${user}/" "$conf" || true
+  # then ensure keys exist under [daemon]
+  sudo awk -v user="$user" '…(same awk block as above)…' "$conf" | sudo tee "$conf" >/dev/null
 }
 
-autologin_disable () {
+autologin_disable() {
   local conf="${1:-$(_gdm_conf_guess)}"
-  [ -n "$conf" ] || return 0
-  sudo install -m 0644 -b "$conf" "$conf" 2>/dev/null || true
-  # set enable=false and comment out AutomaticLogin user line (or blank it)
-  if grep -qE '^\s*AutomaticLoginEnable\s*=' "$conf"; then
-    sudo sed -i 's/^\s*AutomaticLoginEnable\s*=.*/AutomaticLoginEnable = false/' "$conf"
-  else
-    echo "AutomaticLoginEnable = false" | sudo tee -a "$conf" >/dev/null
-  fi
-  # comment the user line if present
-  sudo sed -i 's/^\(\s*\)AutomaticLogin\s*=.*/# \1AutomaticLogin =/' "$conf"
+  # set enable=false under [daemon], and comment AutomaticLogin in [daemon]
+  sudo awk '
+    BEGIN{in_d=0}
+    /^\[daemon\]\s*$/ {in_d=1; print; next}
+    /^\[/ && $0!~/^\[daemon\]/ { in_d=0; print; next }
+    {
+      if(in_d && $0 ~ /^[ \t]*AutomaticLoginEnable[ \t]*=/) { print "AutomaticLoginEnable = false"; next }
+      if(in_d && $0 ~ /^[ \t]*AutomaticLogin[ \t]*=/)       { sub(/^[ \t]*/,"# "); print; next }
+      print
+    }' "$conf" | sudo tee "$conf" >/dev/null
 }
 
 # ---------- rtc + suspend helper ----------

@@ -336,11 +336,28 @@ drain-bat ()
         git clone --branch "$BRANCH" --single-branch https://github.com/pop-os/linux.git 2>/dev/null || \
             git clone https://github.com/pop-os/linux.git
     fi
+    # Argument parsing: support optional --resume flag (run after reboot)
+    RESUME=0
     SMART_PLUG=0
-    if [ $# -gt 0 ];
-    then
+    HS100_ARGS=""
+    if [ $# -gt 0 ]; then
+        if [ "$1" = "--resume" ] || [ "$1" = "--resumed" ]; then
+            RESUME=1
+            shift
+        fi
+    fi
+    # If resuming after reboot, clean up any autostart desktop entry (extra safety)
+    if [ $RESUME -eq 1 ]; then
+        AUTOSTART_DESKTOP="$HOME/.config/autostart/drain-bat-autostart.desktop"
+        if [ -f "$AUTOSTART_DESKTOP" ]; then
+            rm -f "$AUTOSTART_DESKTOP"
+        fi
+    fi
+    HS100_IP=""
+    if [ $# -gt 0 ]; then
         SMART_PLUG=1
         HS100_ARGS=" -i $1"
+        HS100_IP="$1"
     fi
     ./install.sh stress-ng xdotool
     if [ -d /sys/class/power_supply/BAT0 ];
@@ -362,17 +379,87 @@ drain-bat ()
             if [ -n "$DISCOVER_IP" ]; then
                 SMART_PLUG=1
                 HS100_ARGS=" -i $DISCOVER_IP"
+                HS100_IP="$DISCOVER_IP"
             fi
         fi
+
+        HS100_CACHE_DIR="$HOME/.cache/drain-bat"
+        HS100_CACHE_FILE="$HS100_CACHE_DIR/hs100_ip"
 
         if [ $SMART_PLUG -eq 1 ] && [ "$STATUS" != "Discharging" ];
         then
             if [ ! -d hs100 ]; then
                 git clone https://github.com/branning/hs100.git
             fi
-            ./hs100/hs100.sh${HS100_ARGS} off
+                ./hs100/hs100.sh${HS100_ARGS} off
             sleep 15
+
+            # If this is the initial run (not a resume), create an autostart entry so the
+            # tests continue automatically after reboot. The autostart script will remove
+            # itself when it runs on boot.
+            if [ $RESUME -eq 0 ]; then
+                AUTOSTART_DIR="$HOME/.config/autostart"
+                AUTOSTART_DESKTOP="$AUTOSTART_DIR/drain-bat-autostart.desktop"
+                AUTOSTART_SCRIPT="$HOME/.local/bin/drain-bat-autostart.sh"
+
+                mkdir -p "$AUTOSTART_DIR"
+                mkdir -p "$(dirname "$AUTOSTART_SCRIPT")"
+                # Save the HS100 IP to a cache so resume can use it (if we have one)
+                if [ ! -d "$HS100_CACHE_DIR" ]; then
+                    mkdir -p "$HS100_CACHE_DIR"
+                fi
+                # If we have an HS100 IP, save it to the cache so resume can use it
+                if [ -n "$HS100_IP" ]; then
+                    echo "$HS100_IP" > "$HS100_CACHE_FILE" || true
+                fi
+
+                cat > "$AUTOSTART_SCRIPT" <<'EOF'
+#!/bin/bash
+# Autostart wrapper for drain-bat: remove autostart entry then invoke drain-bat with --resume
+AUTOSTART_DESKTOP="$HOME/.config/autostart/drain-bat-autostart.desktop"
+if [ -f "$AUTOSTART_DESKTOP" ]; then
+    rm -f "$AUTOSTART_DESKTOP"
+fi
+# If we saved an IP, pass it to drain-bat --resume
+HS100_CACHE_FILE="$HOME/.cache/drain-bat/hs100_ip"
+HS100_IP=""
+if [ -f "$HS100_CACHE_FILE" ]; then
+    HS100_IP=$(cat "$HS100_CACHE_FILE" || true)
+fi
+# Source user's aliases (so drain-bat function is available) and run resume
+if [ -f "$HOME/.bash_aliases" ]; then
+    # use an interactive shell to ensure .bashrc sourcing behavior matches a login
+    if [ -n "$HS100_IP" ]; then
+        bash -ic 'source "$HOME/.bash_aliases"; drain-bat --resume "$HS100_IP"'
+    else
+        bash -ic 'source "$HOME/.bash_aliases"; drain-bat --resume'
+    fi
+else
+    # Fallback: try to call drain-bat directly if available in PATH
+    if [ -n "$HS100_IP" ]; then
+        bash -ic 'drain-bat --resume "$HS100_IP"'
+    else
+        bash -ic 'drain-bat --resume'
+    fi
+fi
+EOF
+
+                chmod +x "$AUTOSTART_SCRIPT"
+
+                cat > "$AUTOSTART_DESKTOP" <<EOF
+[Desktop Entry]
+Type=Application
+Exec=gnome-terminal -- bash -c '$AUTOSTART_SCRIPT'
+Hidden=false
+NoDisplay=false
+X-GNOME-Autostart-enabled=true
+Name=AutoStart-drain-bat
+Comment=Resume drain-bat tests after reboot
+EOF
+                chmod +x "$AUTOSTART_DESKTOP"
+            fi
         fi
+        sudo rtcwake -m mem -l -s 930
         LAST_CHARGE=0
         clear
         start_time=$(date +%s)
@@ -446,6 +533,10 @@ drain-bat ()
             if [ $SMART_PLUG -eq 1 ] && [ $CHARGE -le $CHARGE_THRESHOLD ];
             then
                 ./hs100/hs100.sh${HS100_ARGS} on
+                # remove cached IP after turning plug back on
+                if [ -f "$HS100_CACHE_FILE" ]; then
+                    rm -f "$HS100_CACHE_FILE" || true
+                fi
             fi
             if [ $CHARGE -eq 100 ]
             then

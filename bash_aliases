@@ -335,6 +335,7 @@ gset_save() {
       "org.gnome.settings-daemon.plugins.power idle-dim"
       "org.gnome.desktop.screensaver idle-activation-enabled"
       "org.gnome.desktop.screensaver lock-enabled"
+      "org.gnome.desktop.screensaver ubuntu-lock-on-suspend"
     )
   fi
 
@@ -369,6 +370,7 @@ gset_apply_test() {
   gsettings set org.gnome.settings-daemon.plugins.power idle-dim false || true
   gsettings set org.gnome.desktop.screensaver idle-activation-enabled false || true
   gsettings set org.gnome.desktop.screensaver lock-enabled false || true
+  gsettings set org.gnome.desktop.screensaver ubuntu-lock-on-suspend false || true
 }
 
 # Restore from $1 (or default). If the file doesn't exist, do nothing.
@@ -402,8 +404,10 @@ autologin_enable () {
   local GDM_CONF=""
   if [ -f /etc/gdm3/custom.conf ]; then
       GDM_CONF="/etc/gdm3/custom.conf"
+      sudo cp $GDM_CONF "${GDM_CONF}.bak"
   elif [ -f /etc/gdm/custom.conf ]; then
       GDM_CONF="/etc/gdm/custom.conf"
+      sudo cp $GDM_CONF "${GDM_CONF}.bak"
   else
       echo "GDM configuration file not found. Autologin not enabled."
       GDM_CONF=""
@@ -429,6 +433,7 @@ autologin_enable () {
 
 autologin_disable () {
   local GDM_CONF=""
+  local GDM_CONF_BAK=""
   if [ -f /etc/gdm3/custom.conf ]; then
       GDM_CONF="/etc/gdm3/custom.conf"
   elif [ -f /etc/gdm/custom.conf ]; then
@@ -437,9 +442,17 @@ autologin_disable () {
       return 0
   fi
 
-  # Flip enable=false; comment out the user line (keeps prior value visible)
-  sudo sed -i 's/^\s*#\?\s*AutomaticLoginEnable\s*=.*/AutomaticLoginEnable = false/' "$GDM_CONF"
-  sudo sed -i 's/^\(\s*\)#\?\s*AutomaticLogin\s*=.*/\1# AutomaticLogin =/' "$GDM_CONF"
+  if [ -f "${GDM_CONF}.bak" ]; then
+      GDM_CONF_BAK="${GDM_CONF}.bak"
+  fi
+
+  if [ -n $GDM_CONF_BAK ]; then
+      sudo mv $GDM_CONF_BAK $GDM_CONF
+  else
+      # Flip enable=false; comment out the user line (keeps prior value visible)
+      sudo sed -i 's/^\s*#\?\s*AutomaticLoginEnable\s*=.*/AutomaticLoginEnable = false/' "$GDM_CONF"
+      sudo sed -i 's/^\(\s*\)#\?\s*AutomaticLogin\s*=.*/\1# AutomaticLogin =/' "$GDM_CONF"
+  fi
 }
 
 # ---------- rtc + suspend helper ----------
@@ -623,11 +636,11 @@ EOF
       fi
       # stop stress and rebuild if running
       pkill -x stress-ng >/dev/null 2>&1 || true
-      pkill -TERM -f "/linux/rebuild.sh" >/dev/null 2>&1 || true
-      pkill -TERM -f "make .* -C" >/dev/null 2>&1 || true
+      pkill -x "rebuild.sh" >/dev/null 2>&1 || true
+      pkill -x "make" >/dev/null 2>&1 || true
       sleep 1
-      pkill -KILL -f "/linux/rebuild.sh" >/dev/null 2>&1 || true
-      pkill -KILL -f "make .* -C" >/dev/null 2>&1 || true
+      pkill -x "rebuild.sh" >/dev/null 2>&1 || true
+      pkill -x "make" >/dev/null 2>&1 || true
     fi
 
     # ---- Only orchestrate the cycle while discharging and above threshold ----
@@ -639,28 +652,29 @@ EOF
           STRESS10_STARTED=1
           # 10-minute stress with timeout; auto-exits after 600s
           $(bash ./terminal.sh --name=stress10 --title=stress10) \
-            bash -lc 'stress-ng -c 0 -m 0 --timeout 600s' &
+            bash -lc 'stress-ng -c 0 --timeout 600s' &
         fi
+        sleep 1
         # When the 10-minute stress finishes, mark done
-        if ! pgrep -f "stress-ng -c 0 -m 0 --timeout 600s" >/dev/null 2>&1; then
+        if ! pgrep -f "stress-ng -c 0" >/dev/null 2>&1; then
           # It either finished or never started; if charge still > threshold, mark done
           STRESS10_DONE=1
         fi
 
       # 2) Start kernel rebuild after stress10 completes
-      elif [ "$BUILD_STARTED" -eq 0 ]; then
+      elif [ "$BUILD_STARTED" -eq 0 ] && [ "$STRESS10_DONE" -eq 1 ]; then
         BUILD_STARTED=1
         $(bash ./terminal.sh --name=kernel-rebuild --title=kernel-rebuild) \
-          bash -lc 'cd "$OLDPWD/linux" 2>/dev/null || cd "./linux"; ./rebuild.sh; echo; echo "rebuild.sh finished. Press Enter to close."; read' &
+          bash -lc 'cd "$OLDPWD/linux" 2>/dev/null || cd "./linux"; ./rebuild.sh'
 
       # 3) If build has finished and we’re still above threshold, start long stress (until threshold)
       else
         # build considered running if either rebuild.sh or make is seen
-        if ! pgrep -f "/linux/rebuild.sh" >/dev/null 2>&1 && ! pgrep -f "make .* -C" >/dev/null 2>&1; then
+        if ! pgrep -f "rebuild.sh" >/dev/null 2>&1 && ! pgrep -f "make .* -C" >/dev/null 2>&1; then
           if [ "$LONG_STRESS_STARTED" -eq 0 ] && ! pgrep -x stress-ng >/dev/null 2>&1; then
             LONG_STRESS_STARTED=1
             $(bash ./terminal.sh --name=stress-until --title=stress-until-threshold) \
-              bash -lc 'stress-ng -c 0 -m 0' &
+              bash -lc 'stress-ng -c 0' &
           fi
         fi
       fi
@@ -677,7 +691,7 @@ EOF
       _log "Battery full. Cleaning up…"
       remove_sudoers_if_present
       autologin_disable
-      gset_restore
+      gset_restore_and_clear
       break
     fi
 

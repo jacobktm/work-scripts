@@ -446,7 +446,7 @@ autologin_disable () {
       GDM_CONF_BAK="${GDM_CONF}.bak"
   fi
 
-  if [ -n $GDM_CONF_BAK ]; then
+  if [ -n "$GDM_CONF_BAK" ]; then
       sudo mv $GDM_CONF_BAK $GDM_CONF
   else
       # Flip enable=false; comment out the user line (keeps prior value visible)
@@ -636,11 +636,32 @@ EOF
       fi
       # stop stress and rebuild if running
       pkill -x stress-ng >/dev/null 2>&1 || true
-      pkill -x "rebuild.sh" >/dev/null 2>&1 || true
-      pkill -x "make" >/dev/null 2>&1 || true
+
+      # Preferred: close the gnome-terminal windows launched by terminal.sh by title
+      if command -v xdotool >/dev/null 2>&1; then
+        for T in kernel-rebuild stress10 stress-until; do
+          # search may return multiple window ids; close them all
+          WINS=$(xdotool search --name "$T" 2>/dev/null || true)
+          if [ -n "$WINS" ]; then
+            for W in $WINS; do
+              xdotool windowclose "$W" >/dev/null 2>&1 || xdotool windowkill "$W" >/dev/null 2>&1 || true
+            done
+            # give processes a moment to exit
+            sleep 2
+          fi
+        done
+      fi
+
+      # Fallback: if any rebuild.sh or make processes remain, try to terminate them
+      if pgrep -f rebuild.sh >/dev/null 2>&1; then
+        pkill -f rebuild.sh >/dev/null 2>&1 || true
+        sleep 1
+        pkill -KILL -f rebuild.sh >/dev/null 2>&1 || true
+      fi
+      # Kill make (graceful then force)
+      pkill -TERM -x make >/dev/null 2>&1 || true
       sleep 1
-      pkill -x "rebuild.sh" >/dev/null 2>&1 || true
-      pkill -x "make" >/dev/null 2>&1 || true
+      pkill -KILL -x make >/dev/null 2>&1 || true
     fi
 
     # ---- Only orchestrate the cycle while discharging and above threshold ----

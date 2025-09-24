@@ -469,7 +469,7 @@ suspend_with_rtc () {
 # ---------- main drain-bat function (stress 10m → rebuild → stress-until-threshold) ----------
 drain-bat () {
   # Constants/defaults
-  readonly CHARGE_THRESHOLD="${CHARGE_THRESHOLD:-5}"
+  readonly CHARGE_THRESHOLD="${CHARGE_THRESHOLD:-20}"
   readonly SUDOERS_FILE="/etc/sudoers.d/drain-bat-rtcwake"
   readonly HS100_CACHE_DIR="$HOME/.cache/drain-bat"
   readonly HS100_CACHE_FILE="$HS100_CACHE_DIR/hs100_ip"

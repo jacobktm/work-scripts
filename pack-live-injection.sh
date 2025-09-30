@@ -68,19 +68,18 @@ done
 # Ensure parent dir exists for output
 mkdir -p "$(dirname "$out")"
 
-# Create archive
+# Create archive inside the staging dir with a relative name,
+# then move it to the requested output path.
+relname="live_injection.$$"
+
 if $use_xz; then
-  # .tar.xz (test with your ISO; Ventoy LiveInjection examples use .tar.gz)
   [[ "$out" == *.tar.xz ]] || out="${out%.*}.tar.xz"
-  (cd "$staging" && tar -cJf "$out" sysroot)
-  mv "$staging/$out" "$out"
+  (cd "$staging" && tar -cJf "$relname" sysroot)
 else
-  # .tar.gz (recommended by LiveInjection docs)
   [[ "$out" == *.tar.gz ]] || out="${out%.*}.tar.gz"
-  (cd "$staging" && tar -czf "$out" sysroot)
-  mv "$staging/$out" "$out"
+  (cd "$staging" && tar -czf "$relname" sysroot)
 fi
 
+mv "$staging/$relname" "$out"
 echo "Created archive: $out"
-echo "Contents:"
 tar -tf "$out"

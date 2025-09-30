@@ -1,0 +1,132 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# efi-nuke — delete ALL UEFI NVRAM boot entries with efibootmgr
+# Default: dry-run. Pass --apply to perform deletions.
+# Optional: --keep <IDCSV> (supports hex/ranges), --keep-pattern "REGEX"
+#
+# Examples:
+#   efi-nuke                   # dry-run, shows everything it would delete
+#   efi-nuke --apply           # actually delete every Boot#### entry
+#   efi-nuke --keep 2001-2003  # keep removable-media fallbacks
+#   efi-nuke --keep-pattern "USB|Network"
+
+dry_run=false
+keep_ids_raw=""
+keep_patterns=""
+
+die(){ echo "error: $*" >&2; exit 1; }
+command -v efibootmgr >/dev/null || die "efibootmgr not found"
+
+hex_norm() {
+  local x="${1^^}"; x="${x#0X}"
+  printf "%04X" "$((16#$x))"
+}
+
+parse_id_list() {
+  local in="$1" out="" tok a b
+  IFS=',' read -ra parts <<< "$in"
+  for tok in "${parts[@]}"; do
+    tok="${tok// /}"; [[ -z "$tok" ]] && continue
+    if [[ "$tok" =~ ^([0-9A-Fa-fx]+)-([0-9A-Fa-fx]+)$ ]]; then
+      a="$(hex_norm "${BASH_REMATCH[1]}")"
+      b="$(hex_norm "${BASH_REMATCH[2]}")"
+      local ai=$((16#$a)) bi=$((16#$b)) i
+      if (( ai <= bi )); then
+        for ((i=ai;i<=bi;i++)); do out+=" $(printf "%04X" "$i")"; done
+      else
+        for ((i=ai;i>=bi;i--)); do out+=" $(printf "%04X" "$i")"; done
+      fi
+    else
+      out+=" $(hex_norm "$tok")"
+    fi
+  done
+  echo "$out"
+}
+
+# args
+while (($#)); do
+  case "$1" in
+    --dryrun) dry_run=true;;
+    --keep) shift; keep_ids_raw="${1:-}";;
+    --keep-pattern|--keep-patterns) shift; keep_patterns="${1:-}";;
+    -h|--help)
+      cat <<'EOF'
+efi-nuke — delete ALL UEFI NVRAM Boot#### entries
+
+Usage:
+  efi-nuke [--dryrun] [--keep IDCSV] [--keep-pattern REGEX]
+
+Notes:
+  - IDs are hexadecimal (0000–FFFF). Accepts short forms and ranges.
+  - Add --dryrun to see what would be removed without removing anything.
+EOF
+      exit 0;;
+    *) die "unknown arg: $1";;
+  esac; shift
+done
+
+# read efibootmgr
+mapfile -t lines < <(sudo efibootmgr)
+declare -A label path; ids=( )
+for line in "${lines[@]}"; do
+  if [[ "$line" =~ ^Boot([0-9A-Fa-f]{4})\*?\ (.*)$ ]]; then
+    id="${BASH_REMATCH[1]}"; ids+=("$id")
+    if [[ "$line" == *$'\t'* ]]; then
+      lbl="${line#Boot${id}}"; lbl="${lbl#\* }"; lbl="${lbl%%$'\t'*}"
+      pth="${line#*$'\t'}"
+    else
+      lbl="${BASH_REMATCH[2]}"; pth=""
+    fi
+    label["$id"]="$(echo -e "$lbl" | sed 's/[[:space:]]*$//')"
+    path["$id"]="$pth"
+  fi
+done
+
+# build keep set
+declare -A keep
+if [[ -n "$keep_ids_raw" ]]; then
+  for k in $(parse_id_list "$keep_ids_raw"); do keep["$k"]=1; done
+fi
+use_pat=false; [[ -n "$keep_patterns" ]] && use_pat=true
+
+# compute deletion list (everything except explicit keeps / pattern-matched)
+to_del=()
+for id in "${ids[@]}"; do
+  idN="$(hex_norm "$id")"
+  if [[ -n "${keep[$idN]:-}" ]]; then continue; fi
+  if $use_pat && echo "${label[$idN]}"$'\n'"${path[$idN]}" | grep -Eiq -- "$keep_patterns"; then
+    continue
+  fi
+  to_del+=("$idN")
+done
+
+# report
+if ((${#ids[@]}==0)); then
+  echo "No Boot#### entries found."
+  exit 0
+fi
+echo "Discovered ${#ids[@]} Boot#### entries:"
+for id in $(printf "%s\n" "${ids[@]}" | sort); do
+  mark=""
+  for k in "${to_del[@]}"; do [[ "$k" == "$id" ]] && mark="[DEL]" && break; done
+  printf "  %-5s %-4s  %s\n" "$mark" "$id" "${label[$id]}"
+done
+echo
+
+if ((${#to_del[@]}==0)); then
+  echo "Nothing to delete (all kept by rules)."
+  exit 0
+fi
+
+if $dry_run; then
+  echo "Dry-run: would delete ${#to_del[@]} entr$( (( ${#to_del[@]}==1 )) && echo "y" || echo "ies" )."
+  exit 0
+fi
+
+echo "Deleting ${#to_del[@]} entries..."
+for id in "${to_del[@]}"; do
+  echo "  efibootmgr -q -B -b $((16#$id))   # ($id ${label[$id]})"
+  sudo efibootmgr -q -B -b $((16#$id))
+done
+echo "Done."

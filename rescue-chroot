@@ -1,0 +1,331 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# rescue-chroot — zero-arg scan, one-arg auto-detect + chroot, clean leave.
+# Works from a live Pop/Ubuntu session. Handles: LUKS, LVM, Btrfs subvols, EFI/boot.
+#
+# Usage:
+#   rescue-chroot                    # scan (default when no device given)
+#   rescue-chroot /dev/nvme0n1p3     # auto-detect stack & chroot
+#   rescue-chroot --target /mnt/xyz /dev/sda3
+#   rescue-chroot leave              # unmount/close/cleanup
+#
+# Optional env/flags:
+#   --target <dir>     mountpoint (default: /mnt/target)
+#   --btrfs-subvol @   force a btrfs subvolume name (else auto)
+#
+# Requires: lsblk, blkid; and as needed: cryptsetup, lvm2 tools, btrfs-progs.
+
+TARGET="/mnt/target"
+FORCE_BTRFS_SUBVOL=""
+
+bold(){ printf "\033[1m%s\033[0m\n" "$*"; }
+note(){ printf "• %s\n" "$*"; }
+die(){ echo "error: $*" >&2; exit 1; }
+need(){ command -v "$1" >/dev/null || die "missing dependency: $1"; }
+
+norm_dev(){ readlink -f "$1"; }
+
+save_state(){
+  cat >"$TARGET/.rescue-chroot-state" <<EOF
+OPENED_MAPPER="${OPENED_MAPPER:-}"
+ACTIVATED_VGS="${ACTIVATED_VGS:-0}"
+ROOT_DEV="${ROOT_DEV:-}"
+EOF
+}
+
+load_state(){
+  [[ -f "$TARGET/.rescue-chroot-state" ]] || return 1
+  # shellcheck disable=SC1090
+  source "$TARGET/.rescue-chroot-state"
+}
+
+mount_bind(){
+  local src="$1" dst="$2"
+  mkdir -p "$dst"
+  mount --rbind "$src" "$dst"
+  mount --make-rslave "$dst" 2>/dev/null || true
+}
+
+umount_tree(){
+  local mp="$1"
+  if mountpoint -q "$mp"; then
+    # unmount children first
+    awk -v mp="$mp" '$2 ~ "^"mp"/" {print $2}' /proc/self/mounts \
+      | sort -r | while read -r sub; do umount -lf "$sub" || true; done
+    umount -lf "$mp" || true
+  fi
+}
+
+scan(){
+  bold "Scanning block devices (heuristic):"
+  lsblk -o NAME,SIZE,FSTYPE,TYPE,MOUNTPOINT,UUID,LABEL -fp
+  echo
+  echo "Hints:"
+  echo "  - LUKS containers show FSTYPE=crypto_LUKS  -> cryptsetup open <dev> <name>"
+  echo "  - LVM PVs: FSTYPE=LVM2_member             -> vgscan; vgchange -ay; lvs"
+  echo "  - Try: rescue-chroot /dev/whatever        -> auto-detect & chroot"
+}
+
+detect_btrfs_subvol(){
+  local dev="$1"
+  need btrfs
+  if [[ -n "$FORCE_BTRFS_SUBVOL" ]]; then
+    echo "$FORCE_BTRFS_SUBVOL"; return 0
+  fi
+  # Try to read default subvol ID; if not set, prefer @ or @root if present.
+  local tmp mnt id name=""
+  tmp="$(mktemp -d)"
+  mount -o ro "$dev" "$tmp"
+  if btrfs subvolume get-default "$tmp" >/dev/null 2>&1; then
+    id=$(btrfs subvolume get-default "$tmp" | awk '/ID:/{print $2}')
+    # Find name by id
+    name=$(btrfs subvolume list -t "$tmp" | awk -v id="$id" '$3==id {print $9}')
+  fi
+  if [[ -z "$name" ]]; then
+    if [[ -d "$tmp/@/etc" ]]; then name="@"
+    elif [[ -d "$tmp/@root/etc" ]]; then name="@root"
+    fi
+  fi
+  umount "$tmp"; rmdir "$tmp"
+  echo "$name"
+}
+
+# Return 0 if luks
+is_luks(){
+  command -v cryptsetup >/dev/null 2>&1 || return 1
+  cryptsetup isLuks "$1" >/dev/null 2>&1
+}
+
+# Return 0 if looks like LVM PV
+is_lvm_pv(){
+  blkid -o value -s TYPE "$1" 2>/dev/null | grep -qi '^LVM2_member$'
+}
+
+# Try to pick a root LV path within active VGs
+pick_root_lv(){
+  need lvs
+  # Prefer names containing 'root' or 'pop' or 'ubuntu', else largest non-swap FS.
+  local best=""
+  # List LV path + size + name
+  while IFS= read -r line; do
+    local path name
+    path="$(awk '{print $1}' <<<"$line")"
+    name="$(awk '{print $2}' <<<"$line")"
+    # Skip swap LVs
+    if blkid "$path" 2>/dev/null | grep -qi 'TYPE="swap"'; then
+      continue
+    fi
+    if [[ "$name" =~ (root|sysroot|ubuntu|pop) ]]; then
+      echo "$path"; return 0
+    fi
+    best="$path"
+  done < <(lvs --noheadings -o lv_path,lv_name 2>/dev/null | sed 's/^[[:space:]]*//')
+  [[ -n "$best" ]] && { echo "$best"; return 0; }
+  return 1
+}
+
+mount_root(){
+  local dev="$1"
+  mkdir -p "$TARGET"
+  local fstype
+  fstype="$(lsblk -no FSTYPE "$dev" 2>/dev/null || true)"
+  if [[ "$fstype" == "btrfs" ]]; then
+    need btrfs
+    local subvol; subvol="$(detect_btrfs_subvol "$dev")"
+    if [[ -n "$subvol" ]]; then
+      note "Btrfs detected; mounting subvol=$subvol"
+      mount -o subvol="$subvol",noatime,compress=zstd "$dev" "$TARGET"
+    else
+      note "Btrfs detected; mounting top-level (no default subvol reported)"
+      mount -o noatime,compress=zstd "$dev" "$TARGET"
+    fi
+  else
+    mount "$dev" "$TARGET"
+  fi
+}
+
+mount_from_fstab(){
+  # Mount /boot and /boot/efi if present in target's fstab.
+  local fstab="$TARGET/etc/fstab"
+  [[ -f "$fstab" ]] || return 0
+
+  # Helper: resolve fstab device spec (UUID=, PARTUUID=, LABEL=) -> /dev/..
+  resolve_spec(){
+    local spec="$1"
+    case "$spec" in
+      UUID=*) blkid -U "${spec#UUID=}" ;;
+      PARTUUID=*) blkid -t PARTUUID="${spec#PARTUUID=}" -o device ;;
+      LABEL=*) blkid -t LABEL="${spec#LABEL=}" -o device ;;
+      /dev/*) echo "$spec" ;;
+      *) echo "" ;;
+    esac
+  }
+
+  # /boot
+  local boot_spec boot_dev
+  boot_spec="$(awk '$2=="/boot" && $1 !~ /^#/ {print $1}' "$fstab" | head -n1 || true)"
+  if [[ -n "$boot_spec" ]]; then
+    boot_dev="$(resolve_spec "$boot_spec")"
+    if [[ -n "$boot_dev" ]]; then
+      mkdir -p "$TARGET/boot"
+      note "Mounting /boot from $boot_dev (fstab)"
+      mount "$boot_dev" "$TARGET/boot" || true
+    fi
+  fi
+
+  # /boot/efi
+  local efi_spec efi_dev
+  efi_spec="$(awk '$2=="/boot/efi" && $1 !~ /^#/ {print $1}' "$fstab" | head -n1 || true)"
+  if [[ -n "$efi_spec" ]]; then
+    efi_dev="$(resolve_spec "$efi_spec")"
+    if [[ -n "$efi_dev" ]]; then
+      mkdir -p "$TARGET/boot/efi"
+      note "Mounting /boot/efi from $efi_dev (fstab)"
+      mount "$efi_dev" "$TARGET/boot/efi" || true
+    fi
+  fi
+
+  # Fallback EFI guess if not mounted and vfat exists
+  if [[ ! -d "$TARGET/boot/efi" || ! $(mountpoint -q "$TARGET/boot/efi"; echo $?) -eq 0 ]]; then
+    local guess
+    guess="$(blkid -t TYPE=vfat -o device | head -n1 || true)"
+    if [[ -n "$guess" ]]; then
+      mkdir -p "$TARGET/boot/efi"
+      note "Mounting /boot/efi from $guess (fallback)"
+      mount "$guess" "$TARGET/boot/efi" 2>/dev/null || true
+    fi
+  fi
+}
+
+enter_auto(){
+  local argdev="$1"
+  [[ -d "$TARGET" ]] || mkdir -p "$TARGET"
+
+  local dev; dev="$(norm_dev "$argdev")"
+  [[ -b "$dev" ]] || die "not a block device: $dev"
+
+  OPENED_MAPPER=""
+  ACTIVATED_VGS=0
+  ROOT_DEV=""
+
+  # LUKS?
+  if is_luks "$dev"; then
+    need cryptsetup
+    # name: crypt-<shortuuid>
+    local uuid name
+    uuid="$(blkid -s UUID -o value "$dev" 2>/dev/null || echo "nolabel")"
+    name="crypt-${uuid:0:8}"
+    if [[ ! -e "/dev/mapper/$name" ]]; then
+      bold "Opening LUKS container: $dev as $name"
+      cryptsetup open "$dev" "$name"
+    else
+      note "LUKS mapper already present: $name"
+    fi
+    OPENED_MAPPER="/dev/mapper/$name"
+    dev="$OPENED_MAPPER"
+  fi
+
+  # LVM PV?
+  if is_lvm_pv "$dev"; then
+    need vgscan; need vgchange; need lvs
+    bold "Activating LVM volume groups..."
+    vgscan --mknodes >/dev/null 2>&1 || true
+    vgchange -ay
+    ACTIVATED_VGS=1
+    local lv
+    lv="$(pick_root_lv)" || die "could not pick a root LV (inspect with 'lvs')"
+    ROOT_DEV="$lv"
+  else
+    ROOT_DEV="$dev"
+  fi
+
+  bold "Mounting root filesystem: $ROOT_DEV -> $TARGET"
+  mount_root "$ROOT_DEV"
+
+  bold "Parsing target fstab for /boot and EFI..."
+  mount_from_fstab
+
+  bold "Binding /dev, /proc, /sys, /run ..."
+  mount_bind /dev  "$TARGET/dev"
+  mount_bind /proc "$TARGET/proc"
+  mount_bind /sys  "$TARGET/sys"
+  mount_bind /run  "$TARGET/run"
+
+  # DNS inside chroot (don’t die if identical/already ok)
+  mkdir -p "$TARGET/etc"
+  if ! cmp -s /etc/resolv.conf "$TARGET/etc/resolv.conf"; then
+    cp -L /etc/resolv.conf "$TARGET/etc/resolv.conf" || true
+  fi
+
+  save_state
+  bold "Entering chroot at $TARGET"
+  echo "Exit with Ctrl-D or 'exit', then run: rescue-chroot leave"
+
+  # Pick a shell that actually exists in the target
+  local SHELL_IN="/bin/bash"
+  [[ -x "$TARGET$SHELL_IN" ]] || SHELL_IN="/bin/sh"
+
+  # Don’t let a weird non-interactive failure kill us silently
+  exec chroot "$TARGET" "$SHELL_IN" -l
+}
+
+leave(){
+  if ! load_state; then
+    note "No state file at $TARGET/.rescue-chroot-state; best-effort cleanup."
+  fi
+
+  bold "Unmounting target..."
+  umount_tree "$TARGET/run"
+  umount_tree "$TARGET/sys"
+  umount_tree "$TARGET/proc"
+  umount_tree "$TARGET/dev"
+  umount_tree "$TARGET/boot/efi"
+  umount_tree "$TARGET/boot"
+  umount_tree "$TARGET"
+
+  if [[ "${ACTIVATED_VGS:-0}" -eq 1 ]] && command -v vgchange >/dev/null; then
+    bold "Deactivating LVM VGs"
+    vgchange -an || true
+  fi
+
+  if [[ -n "${OPENED_MAPPER:-}" ]] && command -v cryptsetup >/dev/null; then
+    local mapname; mapname="$(basename "$OPENED_MAPPER")"
+    if [[ -e "/dev/mapper/$mapname" ]]; then
+      bold "Closing LUKS mapper $mapname"
+      cryptsetup close "$mapname" || true
+    fi
+  fi
+
+  rm -f "$TARGET/.rescue-chroot-state" 2>/dev/null || true
+  bold "Cleanup done."
+}
+
+main() {
+  local arg=""
+  while (($#)); do
+    case "$1" in
+      --target)
+        [[ $# -ge 2 ]] || die "--target needs a path"
+        TARGET="$2"; shift 2;;
+      --btrfs-subvol)
+        [[ $# -ge 2 ]] || die "--btrfs-subvol needs a name"
+        FORCE_BTRFS_SUBVOL="$2"; shift 2;;
+      leave)
+        leave; return 0;;
+      -h|--help)
+        grep -E '^# ' "$0" | sed 's/^# \{0,1\}//'; return 0;;
+      *)
+        # first non-flag is the device argument
+        arg="$1"; shift;;
+    esac
+  done
+
+  if [[ -n "$arg" ]]; then
+    enter_auto "$arg"
+  else
+    scan
+  fi
+}
+
+main "$@"

@@ -2,6 +2,7 @@
 
 if ! command -v flatpak &>/dev/null
 then
+    apt-proxy update
     apt-proxy install -y flatpak
     flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
 fi

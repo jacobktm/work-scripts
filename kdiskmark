@@ -1,0 +1,12 @@
+#!/bin/bash
+
+if ! command -v flatpak &>/dev/null
+then
+    apt-proxy install -y flatpak
+    flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+fi
+if [ ! -d "${HOME}/.local/share/flatpak/app/io.github.jonmagon.kdiskmark" ];
+then
+    flatpak install -y flathub io.github.jonmagon.kdiskmark
+fi
+/usr/bin/flatpak run --branch=stable --arch=x86_64 --command=kdiskmark io.github.jonmagon.kdiskmark

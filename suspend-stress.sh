@@ -16,7 +16,7 @@ if [ ! -f "$AUTOSTART_DESKTOP" ]; then
     cat <<EOF > "$AUTOSTART_DESKTOP"
 [Desktop Entry]
 Type=Application
-Exec=gnome-terminal -- bash -c 'sustest 150; sleep 60; systemctl reboot -i'
+Exec=gnome-terminal -- bash -c 'if [ ! -f .boot_count ]; then echo 0 > .boot_count; fi; COUNT=$(cat .boot_count); sustest 150; sleep 60; echo (($COUNT + 1)) > .boot_count; systemctl reboot -i'
 Hidden=false
 NoDisplay=false
 X-GNOME-Autostart-enabled=true

@@ -61,12 +61,13 @@ suspend_count="$1"
 PKG_LIST=("fwts" "dbus-x11" "gnome-terminal")
 ./install.sh "${PKG_LIST[@]}"
 
-# Adjust GNOME settings for the test
-gsettings set org.gnome.desktop.session idle-delay 0
-gsettings set org.gnome.settings-daemon.plugins.power idle-dim false
-gsettings set org.gnome.settings-daemon.plugins.power sleep-inactive-ac-type "nothing"
-gsettings set org.gnome.desktop.screensaver lock-enabled false
-gsettings set org.gnome.desktop.screensaver ubuntu-lock-on-suspend false
+if command -v gset_save &>/dev/null; then
+    gset_save
+fi
+
+if command -v gset_apply_test &>/dev/null; then
+    gset_apply_test
+fi
 
 # Launch a terminal to monitor journal logs
 sudo gnome-terminal -- bash -c 'journalctl -f | tee ./sustest_journal | grep -E -f ./sustest_patterns.txt'
@@ -116,3 +117,6 @@ fi
 # Display suspend statistics
 sudo cat /sys/kernel/debug/suspend_stats
 
+if command -v gset_restore_and_clear &>/dev/null; then
+    gset_restore_and_clear
+fi

@@ -14,7 +14,7 @@ if [ "$RESPONSE" -eq 200 ]; then
     fi
     sudo /usr/bin/apt -o Acquire::http::Proxy="http://10.17.89.69:3142/" \
         -o Acquire::https::Proxy="http://10.17.89.69:3142/" \
-        -o Acquire::https::http://10.17.89.69:3142/::CaInfo="$HOME/.config/apt-proxy/apt-proxy.pem" \
+        -o Acquire::https::CaInfo="$HOME/.config/apt-proxy/apt-proxy.pem" \
         "$@"
 else
     sudo /usr/bin/apt "$@"

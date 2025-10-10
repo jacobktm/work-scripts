@@ -18,13 +18,77 @@ mkcd ()
 }
 
 full-upgrade() {
+    set -euo pipefail
+
     local path_to_add="$HOME/.local/bin"
     local tmp_update tmp_upgrade
+    local cache_base="/var/cache/apt-cacher-ng"
+
+    # ─────────────────────────────────────────────────────────────────────
+    # 0) Helpers
+    # ─────────────────────────────────────────────────────────────────────
+    apt_command() {
+        # Wrapper in case you alias apt; keep sudo inside calls above as you had.
+        sudo apt "$@"
+    }
+
+    purge_badsig_cacher_entries() {
+        # Parse $1 (update log) for Err-lines paired with BADSIG, compute cache paths,
+        # and delete InRelease* on the remote apt-cacher-ng via SSH.
+        local log_file="$1"
+        local ssh_user="${SSH_USER:-}"
+        local ssh_ip="${SSH_IP:-}"
+        local dry="${DRY_RUN:-0}"
+
+        # Collect Err lines (with URL + SUITE) that are followed (nearby) by a BADSIG note.
+        # We buffer the last Err:* line and emit it if/when we see a BADSIG line.
+        mapfile -t err_lines < <(
+            awk '
+                /^Err:.*https?:\/\// { last_err=$0; next }
+                /BADSIG/ && length(last_err)>0 { print last_err; last_err="" }
+            ' "$log_file"
+        )
+
+        [ "${#err_lines[@]}" -gt 0 ] || return 0  # Nothing to purge.
+
+        if [ -z "$ssh_user" ] || [ -z "$ssh_ip" ]; then
+            echo "→ Detected BADSIG, but SSH_USER/SSH_IP not set; skipping remote purge." >&2
+            return 0
+        fi
+
+        echo "→ Detected BADSIG on the following apt sources (will purge InRelease* on cache):"
+        printf '%s\n' "${err_lines[@]}"
+
+        # Extract "<url> <suite>" pairs from each Err line.
+        # Example line:
+        #   Err:10 http://apt.pop-os.org/ubuntu noble-security InRelease
+        local url suite host rest remote_glob
+        for line in "${err_lines[@]}"; do
+            read -r url suite < <(sed -E 's/^Err:[^ ]+ ([^ ]+) ([^ ]+) InRelease.*/\1 \2/' <<<"$line")
+
+            # URL split into host and remainder path
+            # url example: http://apt.pop-os.org/ubuntu
+            host="$(awk -F/ '{print $3}' <<<"$url")"
+            rest="$(cut -d/ -f4- <<<"$url")"   # "ubuntu" or "ubuntu/<more>"
+
+            # Build the apt-cacher-ng cache glob for InRelease*
+            remote_glob="$cache_base/$host/$rest/dists/$suite/InRelease*"
+
+            if [ "${dry}" = "1" ]; then
+                echo "DRY-RUN → ssh ${ssh_user}@${ssh_ip} \"sudo rm -rvf '$remote_glob'\""
+            else
+                echo "→ Purging remote cache: $remote_glob"
+                ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new \
+                    "${ssh_user}@${ssh_ip}" \
+                    "sudo rm -rvf '$remote_glob' || true"
+            fi
+        done
+    }
 
     # ─────────────────────────────────────────────────────────────────────
     # 1) Ensure ~/.local/bin is in PATH (and in shell rc files)
     # ─────────────────────────────────────────────────────────────────────
-    if ! echo "$PATH" | grep -q "$path_to_add"; then
+    if ! echo ":$PATH:" | grep -q ":$path_to_add:"; then
         echo "$path_to_add is not in PATH"
         # bashrc
         if ! grep -q "PATH=$path_to_add" "$HOME/.bashrc"; then
@@ -38,13 +102,22 @@ full-upgrade() {
     fi
 
     # ─────────────────────────────────────────────────────────────────────
-    # 2) Loop on `apt update` until it succeeds (auto‑fixing dpkg if needed)
+    # 2) Loop on `apt update` until it succeeds; if BADSIG seen, purge cache then retry
     # ─────────────────────────────────────────────────────────────────────
-    tmp_update=$(mktemp)
-    set -o pipefail
+    tmp_update="$(mktemp)"
     while true; do
-        apt_command update 2>&1 | tee "$tmp_update"
-        if [ $? -eq 0 ]; then
+        # Force C locale so the parser sees canonical "Err:" and "BADSIG"
+        LC_ALL=C apt_command update 2>&1 | tee "$tmp_update"
+        update_rc=$?
+
+        # If BADSIG occurred, nuke InRelease* for those repos on the cache and retry.
+        if grep -q "BADSIG" "$tmp_update"; then
+            purge_badsig_cacher_entries "$tmp_update"
+            echo "→ Retrying apt update after purging apt-cacher-ng entries…"
+            continue
+        fi
+
+        if [ $update_rc -eq 0 ]; then
             break
         fi
 
@@ -60,12 +133,14 @@ full-upgrade() {
     rm -f "$tmp_update"
 
     # ─────────────────────────────────────────────────────────────────────
-    # 3) Loop on `apt full-upgrade` until it succeeds (auto‑fixing dpkg)
+    # 3) Loop on `apt full-upgrade` until it succeeds (auto-fixing dpkg)
     # ─────────────────────────────────────────────────────────────────────
-    tmp_upgrade=$(mktemp)
+    tmp_upgrade="$(mktemp)"
     while true; do
         apt_command full-upgrade -y --allow-downgrades 2>&1 | tee "$tmp_upgrade"
-        if [ $? -eq 0 ]; then
+        upgrade_rc=$?
+
+        if [ $upgrade_rc -eq 0 ]; then
             break
         fi
 
@@ -89,7 +164,7 @@ full-upgrade() {
     ./check-needrestart.sh
     if [ $? -eq 0 ]; then
         printf "A reboot is recommended. Reboot now? [y/N] "
-        read answer
+        read -r answer
         case "$answer" in
             [Yy]|[Yy][Ee][Ss])
                 echo "Rebooting…"
@@ -100,7 +175,7 @@ full-upgrade() {
                 ;;
         esac
     fi
-    set +o pipefail
+    set +euo pipefail
 }
 
 speed-test ()

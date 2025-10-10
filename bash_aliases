@@ -24,14 +24,6 @@ full-upgrade() {
     local tmp_update tmp_upgrade
     local cache_base="/var/cache/apt-cacher-ng"
 
-    # ─────────────────────────────────────────────────────────────────────
-    # 0) Helpers
-    # ─────────────────────────────────────────────────────────────────────
-    apt_command() {
-        # Wrapper in case you alias apt; keep sudo inside calls above as you had.
-        sudo apt "$@"
-    }
-
     purge_badsig_cacher_entries() {
         # Parse $1 (update log) for Err-lines paired with BADSIG, compute cache paths,
         # and delete InRelease* on the remote apt-cacher-ng via SSH.

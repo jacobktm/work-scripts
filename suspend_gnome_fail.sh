@@ -4,7 +4,7 @@
 # Designed to work with update_test.sh and maintain state across session deaths
 # 
 # Uses rtcwake to automatically suspend and wake the system for fully automated testing
-# Sets up sudoers for passwordless rtcwake execution
+# Sets up sudoers for passwordless rtcwake execution (persists across reboots)
 # Disables screen lock and auto-suspend for uninterrupted testing
 # Detects two types of failures:
 # 1. GNOME session death during suspend
@@ -28,6 +28,7 @@ SUSPEND_DURATION=30       # seconds to suspend before auto-wake
 mkdir -p "$STATE_DIR"
 
 # Function to set up sudoers for rtcwake
+# Note: This sudoers file persists across reboots to enable automated testing
 setup_rtcwake_sudoers() {
     local username=$(whoami)
     local sudoers_file="/etc/sudoers.d/rtcwake-nopasswd"
@@ -36,7 +37,7 @@ setup_rtcwake_sudoers() {
         log_message "Setting up sudoers for rtcwake..."
         echo "$username ALL=(ALL) NOPASSWD: /usr/sbin/rtcwake" | sudo tee "$sudoers_file" > /dev/null
         sudo chmod 0440 "$sudoers_file"
-        log_message "rtcwake sudoers file created"
+        log_message "rtcwake sudoers file created (persists across reboots)"
     fi
 }
 
@@ -256,12 +257,6 @@ cleanup_and_reboot() {
     # Remove autostart files
     rm -f "$HOME/.config/autostart/suspend-test-restart.desktop"
     rm -f /tmp/restart_suspend_test.sh
-    
-    # Remove rtcwake sudoers file
-    if [ -f "/etc/sudoers.d/rtcwake-nopasswd" ]; then
-        log_message "Removing rtcwake sudoers file"
-        sudo rm -f "/etc/sudoers.d/rtcwake-nopasswd"
-    fi
     
     # Remove state files
     rm -f "$STATE_FILE" "$PID_FILE"

@@ -189,7 +189,7 @@ initiate_suspend() {
     if sudo rtcwake -s "$SUSPEND_DURATION" -m off; then
         log_message "RTC wake alarm set, initiating suspend..."
         # Now actually suspend the system
-        if sudo systemctl suspend; then
+        if sudo systemctl suspend -i; then
             log_message "Suspend completed, system should have auto-woken"
         else
             log_message "ERROR: systemctl suspend failed"
@@ -253,47 +253,10 @@ monitor_session() {
     fi
 }
 
-# Function to restart script after session death
-restart_after_session_death() {
-    log_message "Session died, restarting script..."
-    
-    # Wait for system to stabilize
-    sleep 30
-    
-    # Check if we can restart (basic GNOME session check)
-    if [ -n "$XDG_CURRENT_DESKTOP" ] && [[ "$XDG_CURRENT_DESKTOP" == *"GNOME"* ]]; then
-        log_message "New session detected, restarting monitoring..."
-        exec "$0" "$@"
-    else
-        log_message "No session available, will retry on next boot"
-        # Schedule restart on next boot
-        echo "#!/bin/bash" > /tmp/restart_suspend_test.sh
-        echo "sleep 60" >> /tmp/restart_suspend_test.sh
-        echo "exec '$0' '$@'" >> /tmp/restart_suspend_test.sh
-        chmod +x /tmp/restart_suspend_test.sh
-        
-        # Add to autostart
-        AUTOSTART_FILE="$HOME/.config/autostart/suspend-test-restart.desktop"
-        cat << EOF > "$AUTOSTART_FILE"
-[Desktop Entry]
-Type=Application
-Exec=/tmp/restart_suspend_test.sh
-Hidden=false
-NoDisplay=false
-X-GNOME-Autostart-enabled=true
-Name=Suspend Test Restart
-Comment=Restart suspend test after session death
-EOF
-    fi
-}
 
-# Function to clean up and reboot
-cleanup_and_reboot() {
-    log_message "Test completed, cleaning up and rebooting..."
-    
-    # Remove autostart files
-    rm -f "$HOME/.config/autostart/suspend-test-restart.desktop"
-    rm -f /tmp/restart_suspend_test.sh
+# Function to clean up state files
+cleanup_state() {
+    log_message "Test completed, cleaning up state files..."
     
     # Remove state files
     rm -f "$STATE_FILE" "$PID_FILE"
@@ -303,11 +266,6 @@ cleanup_and_reboot() {
         RESULT=$(cat "$STATE_FILE")
         log_message "Final test result: $RESULT"
     fi
-    
-    # Reboot system
-    log_message "Rebooting system in 10 seconds..."
-    sleep 10
-    sudo reboot
 }
 
 # Main execution logic
@@ -323,9 +281,9 @@ main() {
     # First, check if we're starting after a SysRQ reboot
     if ! check_for_sysrq_reboot; then
         log_message "SysRQ reboot detected at startup, test FAILED"
-        echo "FAILED" > "$STATE_FILE"
-        cleanup_and_reboot
-        return
+        echo "FAILED"
+        cleanup_state
+        exit 1
     fi
     
     # Check if we're restarting after a session death
@@ -338,25 +296,33 @@ main() {
                     log_message "No session recreation detected, checking for SysRQ reboot..."
                     if check_for_sysrq_reboot; then
                         log_message "No SysRQ reboot detected, test PASSED"
-                        echo "PASSED" > "$STATE_FILE"
+                        echo "PASSED"
+                        cleanup_state
+                        exit 0
                     else
                         log_message "SysRQ reboot detected, test FAILED"
-                        echo "FAILED" > "$STATE_FILE"
+                        echo "FAILED"
+                        cleanup_state
+                        exit 1
                     fi
                 else
                     log_message "Session recreation detected, test FAILED"
-                    echo "FAILED" > "$STATE_FILE"
+                    echo "FAILED"
+                    cleanup_state
+                    exit 1
                 fi
-                cleanup_and_reboot
                 ;;
             "MONITORING_STARTED")
                 log_message "Detected restart during monitoring, session likely died"
-                echo "FAILED" > "$STATE_FILE"
-                cleanup_and_reboot
+                echo "FAILED"
+                cleanup_state
+                exit 1
                 ;;
             "PASSED"|"FAILED")
                 log_message "Test already completed with result: $STATE"
-                cleanup_and_reboot
+                echo "$STATE"
+                cleanup_state
+                exit 0
                 ;;
         esac
     fi
@@ -364,17 +330,19 @@ main() {
     # Start fresh monitoring
     if monitor_session; then
         log_message "Test completed successfully"
+        echo "PASSED"
+        cleanup_state
+        exit 0
     else
         log_message "Test failed or session died"
-        # If we get here, the session likely died
-        restart_after_session_death
+        echo "FAILED"
+        cleanup_state
+        exit 1
     fi
-    
-    cleanup_and_reboot
 }
 
 # Handle script termination
-trap 'log_message "Script terminated, cleaning up..."; cleanup_and_reboot' EXIT INT TERM
+trap 'log_message "Script terminated, cleaning up..."; cleanup_state' EXIT INT TERM
 
 # Run main function
 main "$@"

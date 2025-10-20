@@ -3,8 +3,8 @@
 # Script to detect GNOME session failures and system freezes during suspend testing
 # Designed to work with update_test.sh and maintain state across session deaths
 # 
-# Uses rtcwake to automatically suspend and wake the system for fully automated testing
-# Sets up sudoers for passwordless rtcwake execution (persists across reboots)
+# Uses rtcwake to set wake timer and systemctl suspend for automated testing
+# Sets up sudoers for passwordless rtcwake and systemctl suspend execution (persists across reboots)
 # Disables screen lock and auto-suspend for uninterrupted testing
 # Detects two types of failures:
 # 1. GNOME session death during suspend (detected via journal session recreation events)
@@ -34,10 +34,10 @@ setup_rtcwake_sudoers() {
     local sudoers_file="/etc/sudoers.d/rtcwake-nopasswd"
     
     if [ ! -f "$sudoers_file" ]; then
-        log_message "Setting up sudoers for rtcwake..."
-        echo "$username ALL=(ALL) NOPASSWD: /usr/sbin/rtcwake" | sudo tee "$sudoers_file" > /dev/null
+        log_message "Setting up sudoers for rtcwake and systemctl suspend..."
+        echo "$username ALL=(ALL) NOPASSWD: /usr/sbin/rtcwake, /bin/systemctl suspend" | sudo tee "$sudoers_file" > /dev/null
         sudo chmod 0440 "$sudoers_file"
-        log_message "rtcwake sudoers file created (persists across reboots)"
+        log_message "rtcwake and systemctl suspend sudoers file created (persists across reboots)"
     fi
 }
 
@@ -186,10 +186,17 @@ initiate_suspend() {
     
     # Set RTC wake alarm and suspend
     log_message "Setting RTC wake alarm for ${SUSPEND_DURATION} seconds from now..."
-    if sudo rtcwake -s "$SUSPEND_DURATION"; then
-        log_message "Suspend completed, system should have auto-woken"
+    if sudo rtcwake -s "$SUSPEND_DURATION" -m off; then
+        log_message "RTC wake alarm set, initiating suspend..."
+        # Now actually suspend the system
+        if sudo systemctl suspend; then
+            log_message "Suspend completed, system should have auto-woken"
+        else
+            log_message "ERROR: systemctl suspend failed"
+            return 1
+        fi
     else
-        log_message "ERROR: rtcwake suspend failed"
+        log_message "ERROR: rtcwake failed to set wake alarm"
         return 1
     fi
 }

@@ -61,11 +61,11 @@ suspend_count="$1"
 PKG_LIST=("fwts" "dbus-x11" "gnome-terminal")
 ./install.sh "${PKG_LIST[@]}"
 
-if command -v gset_save &>/dev/null; then
+if declare -f gset_save >/dev/null 2>&1; then
     gset_save
 fi
 
-if command -v gset_apply_test &>/dev/null; then
+if declare -f gset_apply_test >/dev/null 2>&1; then
     gset_apply_test
 fi
 

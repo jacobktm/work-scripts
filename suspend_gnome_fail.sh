@@ -24,13 +24,10 @@ if [[ ! -f "$DUMMY_FILE" ]]; then
 
   # Create session marker before suspend
   touch "$SESSION_MARKER"
-  
-  # Resolve HOME path for use in screen session
-  RESOLVED_HOME=$(getent passwd "$(whoami)" | cut -d: -f6)
 
   sleep 30
-  # Use full path to sustest to avoid PATH issues
-  if sudo "$RESOLVED_HOME/.local/bin/sustest" "$SUSTEST_COUNT"; then
+  # Run sustest (should be in PATH)
+  if sudo sustest "$SUSTEST_COUNT"; then
     # If we reach here, suspend completed successfully
     # Remove session marker to indicate session survived
     rm -f "$SESSION_MARKER"

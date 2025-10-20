@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Script to detect GNOME session failures and system freezes during suspend testing
-# Designed to work with update_test.sh and maintain state across session deaths
+# Designed to work with update_test.sh using two-phase approach
 # 
 # Uses rtcwake to set wake timer and systemctl suspend for automated testing
 # Sets up sudoers for passwordless rtcwake and systemctl suspend execution (persists across reboots)
@@ -17,18 +17,23 @@ set -e
 # Configuration
 SCRIPT_DIR="$(dirname "$(realpath "$0")")"
 STATE_DIR="$HOME/.config/suspend_test"
-STATE_FILE="$STATE_DIR/suspend_test_state"
 LOG_FILE="$STATE_DIR/suspend_test.log"
-PID_FILE="$STATE_DIR/suspend_test.pid"
-SESSION_CHECK_INTERVAL=5  # seconds
-SUSPEND_TIMEOUT=60        # seconds to wait for suspend to complete
 SUSPEND_DURATION=30       # seconds to suspend before auto-wake
+
+# Marker files for two-phase approach
+FIRST_RUN_MARKER="$HOME/.suspend_gnome_test.marker"
+PASS_MARKER="$HOME/suspend_gnome_pass.marker"
+FAIL_MARKER="$HOME/suspend_gnome_fail.marker"
 
 # Create state directory
 mkdir -p "$STATE_DIR"
 
+# Logging function
+log_message() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" | tee -a "$LOG_FILE"
+}
+
 # Function to set up sudoers for rtcwake
-# Note: This sudoers file persists across reboots to enable automated testing
 setup_rtcwake_sudoers() {
     local username=$(whoami)
     local sudoers_file="/etc/sudoers.d/rtcwake-nopasswd"
@@ -69,56 +74,6 @@ disable_screen_lock() {
     log_message "Screen lock and auto-suspend disabled"
 }
 
-# Logging function
-log_message() {
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" | tee -a "$LOG_FILE"
-}
-
-# Function to check if GNOME session was recreated after suspend (indicating old session died)
-check_gnome_session_recreated() {
-    log_message "Checking journal for GNOME session recreation events since suspend..."
-    
-    # Get the suspend timestamp from the state file
-    SUSPEND_TIME=""
-    if [ -f "$STATE_FILE" ]; then
-        SUSPEND_TIME=$(grep "SUSPEND_TIME=" "$STATE_FILE" | cut -d'=' -f2)
-    fi
-    
-    # If we have a suspend time, look for session events after that time
-    if [ -n "$SUSPEND_TIME" ]; then
-        log_message "Looking for session events after suspend time: $SUSPEND_TIME"
-        
-        # Check for GNOME session events after suspend
-        if journalctl --since "$SUSPEND_TIME" | grep -iE "(gnome-session.*started|gnome-session.*launched|gnome.*session.*start)" > /dev/null; then
-            log_message "WARNING: GNOME session recreation detected after suspend"
-            return 1
-        fi
-        
-        # Check for session manager restarts after suspend
-        if journalctl --since "$SUSPEND_TIME" | grep -iE "(session.*manager.*restart|gnome.*restart)" > /dev/null; then
-            log_message "WARNING: Session manager restart detected after suspend"
-            return 1
-        fi
-        
-        # Check for display manager login events after suspend
-        if journalctl --since "$SUSPEND_TIME" | grep -iE "(gdm.*login|lightdm.*login|display.*login)" > /dev/null; then
-            log_message "WARNING: Display manager login detected after suspend (session recreated)"
-            return 1
-        fi
-    else
-        log_message "No suspend timestamp available, checking recent session events..."
-        
-        # Look for session events in the last 5 minutes as fallback
-        if journalctl --since "5 minutes ago" | grep -iE "(gnome-session.*started|gnome-session.*launched|gnome.*session.*start)" > /dev/null; then
-            log_message "WARNING: Recent GNOME session recreation detected"
-            return 1
-        fi
-    fi
-    
-    log_message "No GNOME session recreation events detected since suspend"
-    return 0
-}
-
 # Function to check for SysRQ reboot in journal (indicates freeze)
 check_for_sysrq_reboot() {
     log_message "Checking journal for SysRQ reboot events..."
@@ -127,7 +82,6 @@ check_for_sysrq_reboot() {
     CURRENT_BOOT_ID=$(cat /proc/sys/kernel/random/boot_id)
     
     # Check for SysRQ reboot events in the previous boot
-    # Look for messages about emergency reboot, SysRQ, or kernel panic
     if journalctl --list-boots | grep -q "boot_id"; then
         # Get the previous boot ID
         PREVIOUS_BOOT_ID=$(journalctl --list-boots | tail -n 2 | head -n 1 | awk '{print $1}')
@@ -162,15 +116,35 @@ check_for_sysrq_reboot() {
     return 0
 }
 
+# Function to check if GNOME session was recreated after suspend
+check_gnome_session_recreated() {
+    log_message "Checking journal for GNOME session recreation events since suspend..."
+    
+    # Look for session events in the last few minutes
+    if journalctl --since "5 minutes ago" | grep -iE "(gnome-session.*started|gnome-session.*launched|gnome.*session.*start)" > /dev/null; then
+        log_message "WARNING: GNOME session recreation detected"
+        return 1
+    fi
+    
+    # Check for session manager restarts
+    if journalctl --since "5 minutes ago" | grep -iE "(session.*manager.*restart|gnome.*restart)" > /dev/null; then
+        log_message "WARNING: Session manager restart detected"
+        return 1
+    fi
+    
+    # Check for display manager login events
+    if journalctl --since "5 minutes ago" | grep -iE "(gdm.*login|lightdm.*login|display.*login)" > /dev/null; then
+        log_message "WARNING: Display manager login detected (session recreated)"
+        return 1
+    fi
+    
+    log_message "No GNOME session recreation events detected"
+    return 0
+}
+
 # Function to initiate suspend with auto-wake
 initiate_suspend() {
     log_message "Initiating system suspend with auto-wake in ${SUSPEND_DURATION} seconds..."
-    
-    # Record the exact time when suspend is initiated
-    SUSPEND_TIMESTAMP=$(date '+%Y-%m-%d %H:%M:%S')
-    echo "SUSPEND_INITIATED" > "$STATE_FILE"
-    echo "SUSPEND_TIME=$SUSPEND_TIMESTAMP" >> "$STATE_FILE"
-    log_message "Suspend initiated at: $SUSPEND_TIMESTAMP"
     
     # Check if rtcwake is available
     if ! command -v rtcwake >/dev/null 2>&1; then
@@ -201,73 +175,6 @@ initiate_suspend() {
     fi
 }
 
-# Function to monitor session during suspend test
-monitor_session() {
-    log_message "Starting session monitoring..."
-    
-    # Record initial state
-    echo "MONITORING_STARTED" > "$STATE_FILE"
-    echo $$ > "$PID_FILE"
-    
-    # Wait a bit for system to stabilize
-    sleep 10
-    
-    # Check if we're in a GNOME session (basic check for current session)
-    if [ -z "$XDG_CURRENT_DESKTOP" ] || [[ "$XDG_CURRENT_DESKTOP" != *"GNOME"* ]]; then
-        log_message "ERROR: Not in a GNOME session"
-        echo "FAILED" > "$STATE_FILE"
-        return 1
-    fi
-    
-    log_message "GNOME session confirmed active, initiating suspend test..."
-    
-    # Initiate suspend with auto-wake
-    if ! initiate_suspend; then
-        log_message "ERROR: Failed to initiate suspend"
-        echo "FAILED" > "$STATE_FILE"
-        return 1
-    fi
-    
-    # System should auto-wake after SUSPEND_DURATION seconds
-    # If we reach this point, the system has resumed
-    log_message "System has resumed from suspend"
-    
-    # Check if session was recreated (indicating old session died)
-    if check_gnome_session_recreated; then
-        log_message "SUCCESS: No GNOME session recreation detected - session survived"
-        
-        # Also check for SysRQ reboot (freeze) in journal
-        if check_for_sysrq_reboot; then
-            log_message "SUCCESS: No SysRQ reboot detected - test PASSED"
-            echo "PASSED" > "$STATE_FILE"
-            return 0
-        else
-            log_message "FAILURE: SysRQ reboot detected - system froze during suspend"
-            echo "FAILED" > "$STATE_FILE"
-            return 1
-        fi
-    else
-        log_message "FAILURE: GNOME session recreation detected - session died during suspend"
-        echo "FAILED" > "$STATE_FILE"
-        return 1
-    fi
-}
-
-
-# Function to clean up state files
-cleanup_state() {
-    log_message "Test completed, cleaning up state files..."
-    
-    # Remove state files
-    rm -f "$STATE_FILE" "$PID_FILE"
-    
-    # Log final result
-    if [ -f "$STATE_FILE" ]; then
-        RESULT=$(cat "$STATE_FILE")
-        log_message "Final test result: $RESULT"
-    fi
-}
-
 # Main execution logic
 main() {
     log_message "Starting suspend GNOME failure test script"
@@ -278,71 +185,70 @@ main() {
     # Disable screen lock and auto-suspend for automated testing
     disable_screen_lock
     
-    # First, check if we're starting after a SysRQ reboot
-    if ! check_for_sysrq_reboot; then
-        log_message "SysRQ reboot detected at startup, test FAILED"
-        echo "FAILED"
-        cleanup_state
-        exit 1
-    fi
-    
-    # Check if we're restarting after a session death
-    if [ -f "$STATE_FILE" ]; then
-        STATE=$(cat "$STATE_FILE")
-        case "$STATE" in
-            "SUSPEND_INITIATED")
-                log_message "Detected restart after suspend, checking session and journal..."
-                if check_gnome_session_recreated; then
-                    log_message "No session recreation detected, checking for SysRQ reboot..."
-                    if check_for_sysrq_reboot; then
-                        log_message "No SysRQ reboot detected, test PASSED"
-                        echo "PASSED"
-                        cleanup_state
-                        exit 0
-                    else
-                        log_message "SysRQ reboot detected, test FAILED"
-                        echo "FAILED"
-                        cleanup_state
-                        exit 1
-                    fi
-                else
-                    log_message "Session recreation detected, test FAILED"
-                    echo "FAILED"
-                    cleanup_state
-                    exit 1
-                fi
-                ;;
-            "MONITORING_STARTED")
-                log_message "Detected restart during monitoring, session likely died"
-                echo "FAILED"
-                cleanup_state
-                exit 1
-                ;;
-            "PASSED"|"FAILED")
-                log_message "Test already completed with result: $STATE"
-                echo "$STATE"
-                cleanup_state
-                exit 0
-                ;;
-        esac
-    fi
-    
-    # Start fresh monitoring
-    if monitor_session; then
-        log_message "Test completed successfully"
-        echo "PASSED"
-        cleanup_state
-        exit 0
+    if [[ ! -f "$FIRST_RUN_MARKER" ]]; then
+        # ── FIRST RUN ──────────────────────────────────────────────────────────────
+        log_message "First run: Setting up suspend test..."
+        rm -f "$PASS_MARKER" "$FAIL_MARKER"
+        touch "$FIRST_RUN_MARKER"
+        
+        # Check if we're starting after a SysRQ reboot
+        if ! check_for_sysrq_reboot; then
+            log_message "SysRQ reboot detected at startup, test FAILED"
+            touch "$FAIL_MARKER"
+            sudo systemctl reboot -i
+        fi
+        
+        # Check if we're in a GNOME session
+        if [ -z "$XDG_CURRENT_DESKTOP" ] || [[ "$XDG_CURRENT_DESKTOP" != *"GNOME"* ]]; then
+            log_message "ERROR: Not in a GNOME session"
+            touch "$FAIL_MARKER"
+            sudo systemctl reboot -i
+        fi
+        
+        log_message "GNOME session confirmed active, initiating suspend test..."
+        
+        # Initiate suspend with auto-wake
+        if ! initiate_suspend; then
+            log_message "ERROR: Failed to initiate suspend"
+            touch "$FAIL_MARKER"
+            sudo systemctl reboot -i
+        fi
+        
+        # If we reach here, suspend completed successfully
+        log_message "Suspend test completed, rebooting to check results..."
+        sudo systemctl reboot -i
+        
     else
-        log_message "Test failed or session died"
-        echo "FAILED"
-        cleanup_state
-        exit 1
+        # ── SECOND RUN (after reboot) ──────────────────────────────────────────────
+        log_message "Second run: Checking suspend test results..."
+        rm -f "$FIRST_RUN_MARKER"
+        
+        # Check for SysRQ reboot (freeze)
+        if ! check_for_sysrq_reboot; then
+            log_message "SysRQ reboot detected, test FAILED"
+            touch "$FAIL_MARKER"
+        fi
+        
+        # Check for GNOME session recreation
+        if ! check_gnome_session_recreated; then
+            log_message "GNOME session recreation detected, test FAILED"
+            touch "$FAIL_MARKER"
+        fi
+        
+        # Determine final result
+        if [[ -f "$FAIL_MARKER" ]]; then
+            log_message "Test FAILED"
+            echo "FAILED"
+            rm -f "$PASS_MARKER" "$FAIL_MARKER"
+            exit 1
+        else
+            log_message "Test PASSED"
+            echo "PASSED"
+            rm -f "$PASS_MARKER" "$FAIL_MARKER"
+            exit 0
+        fi
     fi
 }
-
-# Handle script termination
-trap 'log_message "Script terminated, cleaning up..."; cleanup_state' EXIT INT TERM
 
 # Run main function
 main "$@"

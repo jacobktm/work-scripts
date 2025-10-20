@@ -1,5 +1,10 @@
 #!/usr/bin/env bash
 
+# Source bash_aliases to ensure functions are available
+if [[ -f "$HOME/.bash_aliases" ]]; then
+    source "$HOME/.bash_aliases"
+fi
+
 # Default values for command line options
 min_delay=15
 max_delay=30

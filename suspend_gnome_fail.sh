@@ -24,6 +24,7 @@ SUSPEND_DURATION=30       # seconds to suspend before auto-wake
 FIRST_RUN_MARKER="$HOME/.suspend_gnome_test.marker"
 PASS_MARKER="$HOME/suspend_gnome_pass.marker"
 FAIL_MARKER="$HOME/suspend_gnome_fail.marker"
+SHELL_CRASH_MARKER="$HOME/.suspend_gnome_shell_crash.marker"
 
 # Create state directory
 mkdir -p "$STATE_DIR"
@@ -72,6 +73,26 @@ disable_screen_lock() {
     fi
     
     log_message "Screen lock and auto-suspend disabled"
+}
+
+# Function to set up autostart for shell crash recovery
+setup_shell_crash_recovery() {
+    log_message "Setting up autostart for shell crash recovery..."
+    
+    # Create autostart entry to restart script if shell crashes
+    AUTOSTART_FILE="$HOME/.config/autostart/suspend-gnome-test-recovery.desktop"
+    cat << EOF > "$AUTOSTART_FILE"
+[Desktop Entry]
+Type=Application
+Exec=$(realpath "$0")
+Hidden=false
+NoDisplay=false
+X-GNOME-Autostart-enabled=true
+Name=Suspend GNOME Test Recovery
+Comment=Restart suspend test after shell crash
+EOF
+    
+    log_message "Autostart recovery entry created"
 }
 
 # Function to check for SysRQ reboot in journal (indicates freeze)
@@ -206,8 +227,11 @@ main() {
     if [[ ! -f "$FIRST_RUN_MARKER" ]]; then
         # ── FIRST RUN ──────────────────────────────────────────────────────────────
         log_message "First run: Setting up suspend test..."
-        rm -f "$PASS_MARKER" "$FAIL_MARKER"
+        rm -f "$PASS_MARKER" "$FAIL_MARKER" "$SHELL_CRASH_MARKER"
         touch "$FIRST_RUN_MARKER"
+        
+        # Set up autostart for shell crash recovery
+        setup_shell_crash_recovery
         
         # Check if we're starting after a SysRQ reboot
         if ! check_for_sysrq_reboot; then
@@ -225,12 +249,30 @@ main() {
         
         log_message "GNOME session confirmed active, initiating suspend test..."
         
+        # Set up a background monitor for shell crashes during the test
+        (
+            sleep 5  # Wait for suspend to start
+            while true; do
+                if ! pgrep -f "gnome-shell" > /dev/null; then
+                    log_message "GNOME shell crashed during test"
+                    touch "$SHELL_CRASH_MARKER"
+                    break
+                fi
+                sleep 2
+            done
+        ) &
+        MONITOR_PID=$!
+        
         # Initiate suspend with auto-wake
         if ! initiate_suspend; then
             log_message "ERROR: Failed to initiate suspend"
+            kill $MONITOR_PID 2>/dev/null || true
             touch "$FAIL_MARKER"
             sudo systemctl reboot -i
         fi
+        
+        # Kill the monitor since suspend completed
+        kill $MONITOR_PID 2>/dev/null || true
         
         # If we reach here, suspend completed successfully
         log_message "Suspend test completed, rebooting to check results..."
@@ -240,6 +282,23 @@ main() {
         # ── SECOND RUN (after reboot) ──────────────────────────────────────────────
         log_message "Second run: Checking suspend test results..."
         rm -f "$FIRST_RUN_MARKER"
+        
+        # Check if we're restarting due to shell crash (not normal reboot)
+        if [[ -f "$SHELL_CRASH_MARKER" ]]; then
+            log_message "Detected shell crash recovery restart"
+            rm -f "$SHELL_CRASH_MARKER"
+            
+            # Check for GNOME session recreation (shell crash detection)
+            if ! check_gnome_session_recreated; then
+                log_message "GNOME shell crash detected, test FAILED"
+                touch "$FAIL_MARKER"
+            else
+                log_message "No shell crash detected, continuing test..."
+                # Restart the first phase
+                rm -f "$FIRST_RUN_MARKER"
+                exec "$0" "$@"
+            fi
+        fi
         
         # Check for SysRQ reboot (freeze)
         if ! check_for_sysrq_reboot; then
@@ -253,16 +312,19 @@ main() {
             touch "$FAIL_MARKER"
         fi
         
+        # Clean up autostart file
+        rm -f "$HOME/.config/autostart/suspend-gnome-test-recovery.desktop"
+        
         # Determine final result
         if [[ -f "$FAIL_MARKER" ]]; then
             log_message "Test FAILED"
             echo "FAILED"
-            rm -f "$PASS_MARKER" "$FAIL_MARKER"
+            rm -f "$PASS_MARKER" "$FAIL_MARKER" "$SHELL_CRASH_MARKER"
             exit 1
         else
             log_message "Test PASSED"
             echo "PASSED"
-            rm -f "$PASS_MARKER" "$FAIL_MARKER"
+            rm -f "$PASS_MARKER" "$FAIL_MARKER" "$SHELL_CRASH_MARKER"
             exit 0
         fi
     fi

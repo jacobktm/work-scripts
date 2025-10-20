@@ -61,8 +61,15 @@ suspend_count="$1"
 PKG_LIST=("fwts" "dbus-x11" "gnome-terminal")
 ./install.sh "${PKG_LIST[@]}"
 
-if declare -f gset_save >/dev/null 2>&1; then
-    gset_save
+# Marker file to track if gsettings have been saved
+GSETTINGS_MARKER="$HOME/.suspend_gsettings_saved.marker"
+
+# Only save gsettings on first run (if marker doesn't exist)
+if [[ ! -f "$GSETTINGS_MARKER" ]]; then
+    if declare -f gset_save >/dev/null 2>&1; then
+        gset_save
+        touch "$GSETTINGS_MARKER"
+    fi
 fi
 
 if declare -f gset_apply_test >/dev/null 2>&1; then
@@ -117,6 +124,9 @@ fi
 # Display suspend statistics
 sudo cat /sys/kernel/debug/suspend_stats
 
-if command -v gset_restore_and_clear &>/dev/null; then
+if declare -f gset_restore_and_clear >/dev/null 2>&1; then
     gset_restore_and_clear
 fi
+
+# Clean up the gsettings marker file
+rm -f "$GSETTINGS_MARKER"

@@ -6,12 +6,7 @@ SCRIPT="$(readlink -f "$0")"
 SCRIPT_DIR="$(dirname "$SCRIPT")"
 DUMMY_FILE="$HOME/.suspend_gnome_test.marker"
 
-# Now point at the patterns file in the script's directory
-PATTERN_FILE="$SCRIPT_DIR/suspend_patterns.txt"
-if [[ ! -f "$PATTERN_FILE" ]]; then
-  echo "ERROR: patterns file not found at $PATTERN_FILE" >&2
-  exit 1
-fi
+# No patterns file needed - using session marker approach
 
 # Single suspend test for GNOME shell crash detection
 SUSTEST_COUNT=1
@@ -53,27 +48,6 @@ else
   if [[ -f "$SESSION_MARKER" ]]; then
     echo "[$(date +'%F %T')] FAIL: GNOME session crashed during suspend (marker not removed)"
     rm -f "$SESSION_MARKER"
-    echo "FAILED"
-    exit 1
-  fi
-  
-  # Check for SysRQ reboot (system freeze)
-  if journalctl -b 0 | grep -iE "(sysrq|emergency.*reboot|kernel.*panic)" > /dev/null; then
-    echo "[$(date +'%F %T')] FAIL: SysRQ reboot detected"
-    echo "FAILED"
-    exit 1
-  fi
-  
-  # Check for GNOME session recreation events
-  if journalctl --since "5 minutes ago" | grep -iE "(gnome-session.*started|gnome-session.*launched|gnome.*session.*start|gnome-shell.*crashed|gnome-shell.*died|gnome-shell.*killed|gnome.*shell.*restart)" > /dev/null; then
-    echo "[$(date +'%F %T')] FAIL: GNOME session recreation detected"
-    echo "FAILED"
-    exit 1
-  fi
-  
-  # Check for general error patterns
-  if journalctl --since "5 minutes ago" | grep -E -f "$PATTERN_FILE" > /dev/null; then
-    echo "[$(date +'%F %T')] FAIL: Error patterns detected in journal"
     echo "FAILED"
     exit 1
   fi

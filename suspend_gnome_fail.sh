@@ -5,6 +5,7 @@
 # 
 # Uses rtcwake to automatically suspend and wake the system for fully automated testing
 # Sets up sudoers for passwordless rtcwake execution
+# Disables screen lock and auto-suspend for uninterrupted testing
 # Detects two types of failures:
 # 1. GNOME session death during suspend
 # 2. System freeze requiring SysRQ reboot (detected via journal analysis)
@@ -37,6 +38,34 @@ setup_rtcwake_sudoers() {
         sudo chmod 0440 "$sudoers_file"
         log_message "rtcwake sudoers file created"
     fi
+}
+
+# Function to disable screen lock
+disable_screen_lock() {
+    log_message "Disabling screen lock for automated testing..."
+    
+    # Disable screen lock
+    current_lock=$(gsettings get org.gnome.desktop.screensaver lock-enabled 2>/dev/null || echo "error")
+    if [ "$current_lock" != "false" ]; then
+        log_message "Disabling screen lock..."
+        gsettings set org.gnome.desktop.screensaver lock-enabled false
+    fi
+    
+    # Disable auto suspend on AC
+    current_ac=$(gsettings get org.gnome.settings-daemon.plugins.power sleep-inactive-ac-type 2>/dev/null || echo "error")
+    if [ "$current_ac" != "'nothing'" ]; then
+        log_message "Disabling auto suspend on AC..."
+        gsettings set org.gnome.settings-daemon.plugins.power sleep-inactive-ac-type 'nothing'
+    fi
+    
+    # Disable auto suspend on battery
+    current_battery=$(gsettings get org.gnome.settings-daemon.plugins.power sleep-inactive-battery-type 2>/dev/null || echo "error")
+    if [ "$current_battery" != "'nothing'" ]; then
+        log_message "Disabling auto suspend on battery..."
+        gsettings set org.gnome.settings-daemon.plugins.power sleep-inactive-battery-type 'nothing'
+    fi
+    
+    log_message "Screen lock and auto-suspend disabled"
 }
 
 # Logging function
@@ -255,6 +284,9 @@ main() {
     
     # Set up sudoers for rtcwake
     setup_rtcwake_sudoers
+    
+    # Disable screen lock and auto-suspend for automated testing
+    disable_screen_lock
     
     # First, check if we're starting after a SysRQ reboot
     if ! check_for_sysrq_reboot; then

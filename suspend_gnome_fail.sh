@@ -46,12 +46,11 @@ if [[ ! -f "$DUMMY_FILE" ]]; then
   touch "$DUMMY_FILE"
 
   # start the monitor in a detached screen session
-  screen -dmS "$SCREEN_SESSION" bash -lc "export PATH=\"\$HOME/.local/bin:\$PATH\"; source '$SCRIPT'; monitor_gnome_shell_crashes"
+  screen -dmS "$SCREEN_SESSION" bash -lc "source '$SCRIPT'; monitor_gnome_shell_crashes"
 
   sleep 30
-  # Ensure PATH includes ~/.local/bin for sustest
-  export PATH="$HOME/.local/bin:$PATH"
-  if sudo sustest "$SUSTEST_COUNT"; then
+  # Use full path to sustest to avoid PATH issues
+  if sudo "$HOME/.local/bin/sustest" "$SUSTEST_COUNT"; then
     touch "$PASS_MARKER"
     screen -S "$SCREEN_SESSION" -X quit || true
   fi

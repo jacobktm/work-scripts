@@ -4,6 +4,7 @@
 # Designed to work with update_test.sh and maintain state across session deaths
 # 
 # Uses rtcwake to automatically suspend and wake the system for fully automated testing
+# Sets up sudoers for passwordless rtcwake execution
 # Detects two types of failures:
 # 1. GNOME session death during suspend
 # 2. System freeze requiring SysRQ reboot (detected via journal analysis)
@@ -24,6 +25,19 @@ SUSPEND_DURATION=30       # seconds to suspend before auto-wake
 
 # Create state directory
 mkdir -p "$STATE_DIR"
+
+# Function to set up sudoers for rtcwake
+setup_rtcwake_sudoers() {
+    local username=$(whoami)
+    local sudoers_file="/etc/sudoers.d/rtcwake-nopasswd"
+    
+    if [ ! -f "$sudoers_file" ]; then
+        log_message "Setting up sudoers for rtcwake..."
+        echo "$username ALL=(ALL) NOPASSWD: /usr/sbin/rtcwake" | sudo tee "$sudoers_file" > /dev/null
+        sudo chmod 0440 "$sudoers_file"
+        log_message "rtcwake sudoers file created"
+    fi
+}
 
 # Logging function
 log_message() {
@@ -112,7 +126,7 @@ initiate_suspend() {
     
     # Set RTC wake alarm and suspend
     log_message "Setting RTC wake alarm for ${SUSPEND_DURATION} seconds from now..."
-    if sudo rtcwake -s "$SUSPEND_DURATION" -m mem; then
+    if sudo rtcwake -s "$SUSPEND_DURATION"; then
         log_message "Suspend completed, system should have auto-woken"
     else
         log_message "ERROR: rtcwake suspend failed"
@@ -214,6 +228,12 @@ cleanup_and_reboot() {
     rm -f "$HOME/.config/autostart/suspend-test-restart.desktop"
     rm -f /tmp/restart_suspend_test.sh
     
+    # Remove rtcwake sudoers file
+    if [ -f "/etc/sudoers.d/rtcwake-nopasswd" ]; then
+        log_message "Removing rtcwake sudoers file"
+        sudo rm -f "/etc/sudoers.d/rtcwake-nopasswd"
+    fi
+    
     # Remove state files
     rm -f "$STATE_FILE" "$PID_FILE"
     
@@ -232,6 +252,9 @@ cleanup_and_reboot() {
 # Main execution logic
 main() {
     log_message "Starting suspend GNOME failure test script"
+    
+    # Set up sudoers for rtcwake
+    setup_rtcwake_sudoers
     
     # First, check if we're starting after a SysRQ reboot
     if ! check_for_sysrq_reboot; then

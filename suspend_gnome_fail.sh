@@ -16,46 +16,30 @@ fi
 # Single suspend test for GNOME shell crash detection
 SUSTEST_COUNT=1
 
-SCREEN_SESSION="gnome_shell_monitor"
+# Marker files for tracking session state
 PASS_MARKER="$HOME/suspend_gnome_pass.marker"
 FAIL_MARKER="$HOME/suspend_gnome_fail.marker"
-
-### ─── Live journal monitor for GNOME shell crashes ──────────────────────────
-monitor_gnome_shell_crashes() {
-  journalctl --since now -f -o short-precise | while IFS= read -r line; do
-    # Check for GNOME shell specific crash patterns
-    if echo "$line" | grep -iE "(gnome-shell.*crashed|gnome-shell.*died|gnome-shell.*killed|gnome.*shell.*restart)" >/dev/null; then
-      echo "[$(date +'%F %T')] FAIL: GNOME shell crash detected: $line"
-      touch "$FAIL_MARKER"
-      sudo systemctl reboot -i
-    fi
-    
-    # Check for general patterns that might indicate shell issues
-    if echo "$line" | grep -E -f "$PATTERN_FILE" >/dev/null; then
-      echo "[$(date +'%F %T')] FAIL: detected error after suspend: $line"
-      touch "$FAIL_MARKER"
-      sudo systemctl reboot -i
-    fi
-  done
-}
+SESSION_MARKER="$HOME/.gnome_session_active.marker"
 
 ### ─── Main workflow ─────────────────────────────────────────────────────────
 if [[ ! -f "$DUMMY_FILE" ]]; then
   # ── FIRST RUN ──────────────────────────────────────────────────────────────
-  rm -f "$PASS_MARKER" "$FAIL_MARKER"
+  rm -f "$PASS_MARKER" "$FAIL_MARKER" "$SESSION_MARKER"
   touch "$DUMMY_FILE"
 
+  # Create session marker before suspend
+  touch "$SESSION_MARKER"
+  
   # Resolve HOME path for use in screen session
   RESOLVED_HOME=$(getent passwd "$(whoami)" | cut -d: -f6)
-  
-  # start the monitor in a detached screen session
-  screen -dmS "$SCREEN_SESSION" bash -lc "source '$SCRIPT'; monitor_gnome_shell_crashes"
 
   sleep 30
   # Use full path to sustest to avoid PATH issues
   if sudo "$RESOLVED_HOME/.local/bin/sustest" "$SUSTEST_COUNT"; then
+    # If we reach here, suspend completed successfully
+    # Remove session marker to indicate session survived
+    rm -f "$SESSION_MARKER"
     touch "$PASS_MARKER"
-    screen -S "$SCREEN_SESSION" -X quit || true
   fi
 
   sleep 15
@@ -64,7 +48,35 @@ if [[ ! -f "$DUMMY_FILE" ]]; then
 else
   # ── SECOND RUN (after reboot) ──────────────────────────────────────────────
   rm -f "$DUMMY_FILE"
-  screen -S "$SCREEN_SESSION" -X quit || true
+  
+  # Check if session marker still exists (indicates session crash)
+  if [[ -f "$SESSION_MARKER" ]]; then
+    echo "[$(date +'%F %T')] FAIL: GNOME session crashed during suspend (marker not removed)"
+    rm -f "$SESSION_MARKER"
+    echo "FAILED"
+    exit 1
+  fi
+  
+  # Check for SysRQ reboot (system freeze)
+  if journalctl -b 0 | grep -iE "(sysrq|emergency.*reboot|kernel.*panic)" > /dev/null; then
+    echo "[$(date +'%F %T')] FAIL: SysRQ reboot detected"
+    echo "FAILED"
+    exit 1
+  fi
+  
+  # Check for GNOME session recreation events
+  if journalctl --since "5 minutes ago" | grep -iE "(gnome-session.*started|gnome-session.*launched|gnome.*session.*start|gnome-shell.*crashed|gnome-shell.*died|gnome-shell.*killed|gnome.*shell.*restart)" > /dev/null; then
+    echo "[$(date +'%F %T')] FAIL: GNOME session recreation detected"
+    echo "FAILED"
+    exit 1
+  fi
+  
+  # Check for general error patterns
+  if journalctl --since "5 minutes ago" | grep -E -f "$PATTERN_FILE" > /dev/null; then
+    echo "[$(date +'%F %T')] FAIL: Error patterns detected in journal"
+    echo "FAILED"
+    exit 1
+  fi
 
   if [[ -f "$FAIL_MARKER" ]]; then
     echo "FAILED"

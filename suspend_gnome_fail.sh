@@ -7,7 +7,7 @@
 # Sets up sudoers for passwordless rtcwake and systemctl suspend execution (persists across reboots)
 # Disables screen lock and auto-suspend for uninterrupted testing
 # Detects two types of failures:
-# 1. GNOME session death during suspend (detected via journal session recreation events)
+# 1. GNOME session death/shell crash during suspend (detected via journal session recreation events)
 # 2. System freeze requiring SysRQ reboot (detected via journal analysis)
 # 
 # Returns PASSED only if neither failure mode is detected
@@ -120,9 +120,15 @@ check_for_sysrq_reboot() {
 check_gnome_session_recreated() {
     log_message "Checking journal for GNOME session recreation events since suspend..."
     
-    # Look for session events in the last few minutes
+    # Look for GNOME session events (session recreation)
     if journalctl --since "5 minutes ago" | grep -iE "(gnome-session.*started|gnome-session.*launched|gnome.*session.*start)" > /dev/null; then
         log_message "WARNING: GNOME session recreation detected"
+        return 1
+    fi
+    
+    # Check for GNOME shell crashes and restarts
+    if journalctl --since "5 minutes ago" | grep -iE "(gnome-shell.*crashed|gnome-shell.*restart|gnome.*shell.*died|gnome.*shell.*killed)" > /dev/null; then
+        log_message "WARNING: GNOME shell crash/restart detected"
         return 1
     fi
     
@@ -132,9 +138,21 @@ check_gnome_session_recreated() {
         return 1
     fi
     
-    # Check for display manager login events
+    # Check for display manager login events (indicates session recreation)
     if journalctl --since "5 minutes ago" | grep -iE "(gdm.*login|lightdm.*login|display.*login)" > /dev/null; then
         log_message "WARNING: Display manager login detected (session recreated)"
+        return 1
+    fi
+    
+    # Check for Wayland session recreation
+    if journalctl --since "5 minutes ago" | grep -iE "(wayland.*session.*start|wayland.*session.*restart)" > /dev/null; then
+        log_message "WARNING: Wayland session recreation detected"
+        return 1
+    fi
+    
+    # Check for X11 session recreation
+    if journalctl --since "5 minutes ago" | grep -iE "(x11.*session.*start|x11.*session.*restart)" > /dev/null; then
+        log_message "WARNING: X11 session recreation detected"
         return 1
     fi
     

@@ -3,6 +3,7 @@
 # Script to detect GNOME session failures and system freezes during suspend testing
 # Designed to work with update_test.sh and maintain state across session deaths
 # 
+# Uses rtcwake to automatically suspend and wake the system for fully automated testing
 # Detects two types of failures:
 # 1. GNOME session death during suspend
 # 2. System freeze requiring SysRQ reboot (detected via journal analysis)
@@ -19,6 +20,7 @@ LOG_FILE="$STATE_DIR/suspend_test.log"
 PID_FILE="$STATE_DIR/suspend_test.pid"
 SESSION_CHECK_INTERVAL=5  # seconds
 SUSPEND_TIMEOUT=60        # seconds to wait for suspend to complete
+SUSPEND_DURATION=30       # seconds to suspend before auto-wake
 
 # Create state directory
 mkdir -p "$STATE_DIR"
@@ -91,30 +93,30 @@ check_for_sysrq_reboot() {
     return 0
 }
 
-# Function to initiate suspend
+# Function to initiate suspend with auto-wake
 initiate_suspend() {
-    log_message "Initiating system suspend..."
+    log_message "Initiating system suspend with auto-wake in ${SUSPEND_DURATION} seconds..."
     echo "SUSPEND_INITIATED" > "$STATE_FILE"
     
-    # Start suspend in background
-    systemctl suspend &
-    SUSPEND_PID=$!
+    # Check if rtcwake is available
+    if ! command -v rtcwake >/dev/null 2>&1; then
+        log_message "ERROR: rtcwake not found, installing util-linux..."
+        sudo apt update && sudo apt install -y util-linux
+    fi
     
-    # Wait for suspend to complete or timeout
-    local count=0
-    while [ $count -lt $SUSPEND_TIMEOUT ]; do
-        if ! kill -0 $SUSPEND_PID 2>/dev/null; then
-            # Suspend process finished
-            break
-        fi
-        sleep 1
-        count=$((count + 1))
-    done
+    # Check if RTC is available
+    if ! sudo rtcwake -l >/dev/null 2>&1; then
+        log_message "ERROR: RTC not available, cannot set wake alarm"
+        return 1
+    fi
     
-    # If suspend is still running, kill it
-    if kill -0 $SUSPEND_PID 2>/dev/null; then
-        log_message "Suspend timeout, killing suspend process"
-        kill $SUSPEND_PID 2>/dev/null || true
+    # Set RTC wake alarm and suspend
+    log_message "Setting RTC wake alarm for ${SUSPEND_DURATION} seconds from now..."
+    if sudo rtcwake -s "$SUSPEND_DURATION" -m mem; then
+        log_message "Suspend completed, system should have auto-woken"
+    else
+        log_message "ERROR: rtcwake suspend failed"
+        return 1
     fi
 }
 
@@ -138,11 +140,16 @@ monitor_session() {
     
     log_message "GNOME session confirmed active, initiating suspend test..."
     
-    # Initiate suspend
-    initiate_suspend
+    # Initiate suspend with auto-wake
+    if ! initiate_suspend; then
+        log_message "ERROR: Failed to initiate suspend"
+        echo "FAILED" > "$STATE_FILE"
+        return 1
+    fi
     
-    # Wait for system to resume
-    sleep 5
+    # System should auto-wake after SUSPEND_DURATION seconds
+    # If we reach this point, the system has resumed
+    log_message "System has resumed from suspend"
     
     # Check if session survived
     if check_gnome_session; then

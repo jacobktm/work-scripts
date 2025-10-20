@@ -45,12 +45,15 @@ if [[ ! -f "$DUMMY_FILE" ]]; then
   rm -f "$PASS_MARKER" "$FAIL_MARKER"
   touch "$DUMMY_FILE"
 
+  # Resolve HOME path for use in screen session
+  RESOLVED_HOME=$(getent passwd "$(whoami)" | cut -d: -f6)
+  
   # start the monitor in a detached screen session
   screen -dmS "$SCREEN_SESSION" bash -lc "source '$SCRIPT'; monitor_gnome_shell_crashes"
 
   sleep 30
   # Use full path to sustest to avoid PATH issues
-  if sudo "$HOME/.local/bin/sustest" "$SUSTEST_COUNT"; then
+  if sudo "$RESOLVED_HOME/.local/bin/sustest" "$SUSTEST_COUNT"; then
     touch "$PASS_MARKER"
     screen -S "$SCREEN_SESSION" -X quit || true
   fi

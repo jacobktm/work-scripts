@@ -403,6 +403,9 @@ gset_save() {
       "org.gnome.desktop.screensaver idle-activation-enabled"
       "org.gnome.desktop.screensaver lock-enabled"
       "org.gnome.desktop.screensaver ubuntu-lock-on-suspend"
+      "org.gnome.desktop.lockdown disable-lock-screen"
+      "org.gnome.desktop.screensaver lock-delay"
+      "org.gnome.desktop.screensaver lock-on-suspend"
     )
   fi
 
@@ -431,13 +434,23 @@ gset_save() {
 # Purely modifies; does not save anything. No-ops if gsettings missing.
 gset_apply_test() {
   command -v gsettings >/dev/null 2>&1 || return 0
+  # Disable idle timeout and auto-suspend
   gsettings set org.gnome.desktop.session idle-delay 0 || true
   gsettings set org.gnome.settings-daemon.plugins.power sleep-inactive-ac-type 'nothing' || true
   gsettings set org.gnome.settings-daemon.plugins.power sleep-inactive-battery-type 'nothing' || true
   gsettings set org.gnome.settings-daemon.plugins.power idle-dim false || true
+  
+  # Disable lock screen completely
   gsettings set org.gnome.desktop.screensaver idle-activation-enabled false || true
   gsettings set org.gnome.desktop.screensaver lock-enabled false || true
   gsettings set org.gnome.desktop.screensaver ubuntu-lock-on-suspend false || true
+  
+  # Additional settings to prevent lock on resume
+  gsettings set org.gnome.desktop.lockdown disable-lock-screen true || true
+  gsettings set org.gnome.desktop.screensaver lock-delay 0 || true
+  
+  # Disable automatic screen lock
+  gsettings set org.gnome.desktop.screensaver lock-on-suspend false || true
 }
 
 # Restore from $1 (or default). If the file doesn't exist, do nothing.

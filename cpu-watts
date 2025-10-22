@@ -4,6 +4,7 @@ set -e
 
 while true
 do
+    clear
     last="$(sudo cat /sys/class/powercap/intel-rapl\:0/energy_uj)"
     sleep .1
     next="$(sudo cat /sys/class/powercap/intel-rapl\:0/energy_uj)"

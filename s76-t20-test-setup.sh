@@ -224,30 +224,67 @@ collect_tec_info() {
             local gpu_driver=$(nvidia-smi --query-gpu=driver_version --format=csv,noheader 2>/dev/null | head -1)
             
             # Get memory bandwidth information from nvidia-smi -q (detailed query)
-            local gpu_mem_bus_width=$(nvidia-smi -q -d MEMORY 2>/dev/null | grep "Bus Width" | head -1 | cut -d: -f2 | xargs || echo "")
-            local gpu_mem_type=$(nvidia-smi -q -d MEMORY 2>/dev/null | grep "Memory Type" | head -1 | cut -d: -f2 | xargs || echo "")
-            local gpu_mem_transfer_rate=$(nvidia-smi -q -d MEMORY 2>/dev/null | grep "Memory Transfer Rate" | head -1 | cut -d: -f2 | xargs || echo "")
+            # Try parsing from full -q output (the -d MEMORY syntax doesn't work)
+            local gpu_mem_bus_width=$(nvidia-smi -q 2>/dev/null | grep -i "Bus Width" | head -1 | cut -d: -f2 | xargs || echo "")
+            local gpu_mem_type=$(nvidia-smi -q 2>/dev/null | grep -i "Memory Type" | head -1 | cut -d: -f2 | xargs || echo "")
+            local gpu_mem_transfer_rate=$(nvidia-smi -q 2>/dev/null | grep -i "Memory Transfer Rate\|Transfer Rate" | head -1 | cut -d: -f2 | xargs || echo "")
+            
+            # If bus width not found, try to get from GPU model lookup (common bus widths)
+            if [ -z "$gpu_mem_bus_width" ]; then
+                # Common GPU bus widths - can be expanded
+                if [[ "$gpu_name" =~ "RTX 4090" ]]; then
+                    gpu_mem_bus_width="384 bit"
+                elif [[ "$gpu_name" =~ "RTX 4080" ]]; then
+                    gpu_mem_bus_width="256 bit"
+                elif [[ "$gpu_name" =~ "RTX 4070" ]]; then
+                    gpu_mem_bus_width="192 bit"
+                elif [[ "$gpu_name" =~ "RTX 4060" ]]; then
+                    gpu_mem_bus_width="128 bit"
+                elif [[ "$gpu_name" =~ "RTX 3090" ]]; then
+                    gpu_mem_bus_width="384 bit"
+                elif [[ "$gpu_name" =~ "RTX 3080" ]]; then
+                    gpu_mem_bus_width="320 bit"
+                elif [[ "$gpu_name" =~ "RTX 3070" ]]; then
+                    gpu_mem_bus_width="256 bit"
+                elif [[ "$gpu_name" =~ "RTX 3060" ]]; then
+                    gpu_mem_bus_width="192 bit"
+                elif [[ "$gpu_name" =~ "GTX 1660" ]]; then
+                    gpu_mem_bus_width="192 bit"
+                elif [[ "$gpu_name" =~ "GTX 1080" ]]; then
+                    gpu_mem_bus_width="256 bit"
+                elif [[ "$gpu_name" =~ "GTX 1070" ]]; then
+                    gpu_mem_bus_width="256 bit"
+                elif [[ "$gpu_name" =~ "GTX 1060" ]]; then
+                    gpu_mem_bus_width="192 bit"
+                fi
+            fi
+            
+            # Extract bus width number for calculations (if we have it)
+            local bus_width_num=""
+            if [ -n "$gpu_mem_bus_width" ]; then
+                bus_width_num=$(echo "$gpu_mem_bus_width" | grep -oE '[0-9]+' | head -1)
+            fi
             
             # Calculate memory bandwidth if we have bus width and transfer rate
             # Memory Bandwidth (GB/s) = (Memory Transfer Rate (MT/s) * Bus Width (bits)) / 8 / 1000
             local gpu_mem_bandwidth=""
-            if [ -n "$gpu_mem_bus_width" ] && [ -n "$gpu_mem_transfer_rate" ]; then
-                # Extract numeric values
-                local bus_width_num=$(echo "$gpu_mem_bus_width" | grep -oE '[0-9]+' | head -1)
+            if [ -n "$bus_width_num" ] && [ -n "$gpu_mem_transfer_rate" ]; then
                 local transfer_rate_num=$(echo "$gpu_mem_transfer_rate" | grep -oE '[0-9]+' | head -1)
-                if [ -n "$bus_width_num" ] && [ -n "$transfer_rate_num" ]; then
+                if [ -n "$transfer_rate_num" ]; then
                     gpu_mem_bandwidth=$(echo "scale=2; (${transfer_rate_num} * ${bus_width_num}) / 8 / 1000" | bc 2>/dev/null || echo "")
                     [ -n "$gpu_mem_bandwidth" ] && gpu_mem_bandwidth="${gpu_mem_bandwidth} GB/s"
                 fi
             fi
             
-            # Try alternative method: get from nvidia-smi --query-gpu if available
-            if [ -z "$gpu_mem_bandwidth" ]; then
-                local gpu_mem_clock=$(nvidia-smi --query-gpu=clocks.mem --format=csv,noheader 2>/dev/null | head -1 | grep -oE '[0-9]+' || echo "")
-                if [ -n "$gpu_mem_clock" ] && [ -n "$bus_width_num" ]; then
+            # Try alternative method: calculate from maximum memory clock if we have bus width
+            if [ -z "$gpu_mem_bandwidth" ] && [ -n "$bus_width_num" ]; then
+                # Get maximum memory clock from nvidia-smi (use max for theoretical bandwidth)
+                local gpu_mem_clock_max=$(nvidia-smi --query-gpu=clocks.max.mem --format=csv,noheader 2>/dev/null | head -1 | grep -oE '[0-9]+' || echo "")
+                
+                if [ -n "$gpu_mem_clock_max" ]; then
                     # Memory clock is in MHz, need to multiply by 2 for DDR (double data rate)
-                    local mem_clock_mhz=$(echo "$gpu_mem_clock" | head -1)
-                    gpu_mem_bandwidth=$(echo "scale=2; (${mem_clock_mhz} * 2 * ${bus_width_num}) / 8 / 1000" | bc 2>/dev/null || echo "")
+                    # Formula: (Max Memory Clock (MHz) * 2 * Bus Width (bits)) / 8 / 1000 = GB/s
+                    gpu_mem_bandwidth=$(echo "scale=2; (${gpu_mem_clock_max} * 2 * ${bus_width_num}) / 8 / 1000" | bc 2>/dev/null || echo "")
                     [ -n "$gpu_mem_bandwidth" ] && gpu_mem_bandwidth="${gpu_mem_bandwidth} GB/s"
                 fi
             fi

@@ -1,5 +1,15 @@
 #!/bin/bash
 
+# Check for required arguments: username and IP address
+if [ $# -lt 2 ]; then
+    echo "Error: Missing required arguments" >&2
+    echo "Usage: $0 <username> <ip_address>" >&2
+    exit 1
+fi
+
+SCP_USER="$1"
+SCP_IP="$2"
+
 # Install necessary packages
 ./install.sh git inxi powertop edid-decode ethtool jq bc
 cd $HOME
@@ -24,6 +34,8 @@ sudo dmidecode --type 17 > mem-info.txt
 
 # Function to collect system information for TEC score calculation
 collect_tec_info() {
+    local scp_user="$1"
+    local scp_ip="$2"
     local output_file="t20-eut.txt"
     local json_file="t20-eut.json"
     local es_response_file=""  # Will be set if expandability calculation is performed
@@ -1217,28 +1229,25 @@ collect_tec_info() {
     echo "System information collected and saved to $json_file and $output_file"
     
     # SCP to server
-    echo "Attempting to copy files to 10.17.89.69..."
+    echo "Attempting to copy files to ${scp_user}@${scp_ip}..."
     if command -v scp &> /dev/null; then
         # Copy main output file
-        scp "$output_file" "system76@10.17.89.69:~/t20-eut.txt" 2>/dev/null || \
-        scp "$output_file" "root@10.17.89.69:~/t20-eut.txt" 2>/dev/null || \
-        scp "$json_file" "system76@10.17.89.69:~/t20-eut.txt" 2>/dev/null || \
-        scp "$json_file" "root@10.17.89.69:~/t20-eut.txt" 2>/dev/null || \
-        echo "Warning: Could not SCP main file to 10.17.89.69. Please copy $output_file manually."
+        scp "$output_file" "${scp_user}@${scp_ip}:~/t20-eut.txt" 2>/dev/null || \
+        scp "$json_file" "${scp_user}@${scp_ip}:~/t20-eut.txt" 2>/dev/null || \
+        echo "Warning: Could not SCP main file to ${scp_user}@${scp_ip}. Please copy $output_file manually."
         
         # Copy expandability score response file if it was created
         if [ -n "$es_response_file" ] && [ -f "$es_response_file" ]; then
-            scp "$es_response_file" "system76@10.17.89.69:~/${es_response_file}" 2>/dev/null || \
-            scp "$es_response_file" "root@10.17.89.69:~/${es_response_file}" 2>/dev/null || \
-            echo "Warning: Could not SCP expandability score file to 10.17.89.69. Please copy $es_response_file manually."
+            scp "$es_response_file" "${scp_user}@${scp_ip}:~/${es_response_file}" 2>/dev/null || \
+            echo "Warning: Could not SCP expandability score file to ${scp_user}@${scp_ip}. Please copy $es_response_file manually."
         fi
     else
-        echo "Warning: scp not found. Please copy $output_file and $es_response_file to 10.17.89.69 manually."
+        echo "Warning: scp not found. Please copy $output_file and $es_response_file to ${scp_user}@${scp_ip} manually."
     fi
 }
 
 # Collect system information
-collect_tec_info
+collect_tec_info "$SCP_USER" "$SCP_IP"
 
 # Check if apt-proxy exists, and set the correct APT command
 if command -v apt-proxy &>/dev/null; then

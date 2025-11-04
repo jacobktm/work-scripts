@@ -224,38 +224,46 @@ collect_tec_info() {
             local gpu_driver=$(nvidia-smi --query-gpu=driver_version --format=csv,noheader 2>/dev/null | head -1)
             
             # Get memory bandwidth information from nvidia-smi -q (detailed query)
-            # Try parsing from full -q output (the -d MEMORY syntax doesn't work)
+            # Note: nvidia-smi does not directly provide memory bus width, so we try alternative sources
             local gpu_mem_bus_width=$(nvidia-smi -q 2>/dev/null | grep -i "Bus Width" | head -1 | cut -d: -f2 | xargs || echo "")
             local gpu_mem_type=$(nvidia-smi -q 2>/dev/null | grep -i "Memory Type" | head -1 | cut -d: -f2 | xargs || echo "")
             local gpu_mem_transfer_rate=$(nvidia-smi -q 2>/dev/null | grep -i "Memory Transfer Rate\|Transfer Rate" | head -1 | cut -d: -f2 | xargs || echo "")
             
-            # If bus width not found, try to get from GPU model lookup (common bus widths)
-            if [ -z "$gpu_mem_bus_width" ]; then
-                # Common GPU bus widths - can be expanded
-                if [[ "$gpu_name" =~ "RTX 4090" ]]; then
-                    gpu_mem_bus_width="384 bit"
-                elif [[ "$gpu_name" =~ "RTX 4080" ]]; then
-                    gpu_mem_bus_width="256 bit"
-                elif [[ "$gpu_name" =~ "RTX 4070" ]]; then
-                    gpu_mem_bus_width="192 bit"
-                elif [[ "$gpu_name" =~ "RTX 4060" ]]; then
-                    gpu_mem_bus_width="128 bit"
-                elif [[ "$gpu_name" =~ "RTX 3090" ]]; then
-                    gpu_mem_bus_width="384 bit"
-                elif [[ "$gpu_name" =~ "RTX 3080" ]]; then
-                    gpu_mem_bus_width="320 bit"
-                elif [[ "$gpu_name" =~ "RTX 3070" ]]; then
-                    gpu_mem_bus_width="256 bit"
-                elif [[ "$gpu_name" =~ "RTX 3060" ]]; then
-                    gpu_mem_bus_width="192 bit"
-                elif [[ "$gpu_name" =~ "GTX 1660" ]]; then
-                    gpu_mem_bus_width="192 bit"
-                elif [[ "$gpu_name" =~ "GTX 1080" ]]; then
-                    gpu_mem_bus_width="256 bit"
-                elif [[ "$gpu_name" =~ "GTX 1070" ]]; then
-                    gpu_mem_bus_width="256 bit"
-                elif [[ "$gpu_name" =~ "GTX 1060" ]]; then
-                    gpu_mem_bus_width="192 bit"
+            # Try to get bus width from TechPowerUp if not found in nvidia-smi
+            if [ -z "$gpu_mem_bus_width" ] && [ -n "$gpu_name" ]; then
+                # Normalize GPU name for TechPowerUp lookup (replace "Laptop GPU" with "Mobile")
+                local normalized_name=$(echo "$gpu_name" | sed 's/Laptop GPU/Mobile/g' | sed 's/GPU//g' | tr '[:upper:]' '[:lower:]' | sed 's/^nvidia //' | sed 's/geforce //' | tr ' ' '-' | sed 's/--/-/g' | sed 's/-$//')
+                
+                # Try to fetch from TechPowerUp GPU database
+                # TechPowerUp URLs are typically: https://www.techpowerup.com/gpu-specs/<model>.c<id>
+                # First, try a search or direct URL pattern
+                if command -v curl &> /dev/null; then
+                    # Try direct lookup via search (TechPowerUp search API or page)
+                    local search_url="https://www.techpowerup.com/gpu-specs/?ajaxsrch=${normalized_name}"
+                    local tpu_page=$(curl -s -L --max-time 5 --user-agent "Mozilla/5.0" "$search_url" 2>/dev/null || echo "")
+                    
+                    # Try to find bus width in the page
+                    if [ -n "$tpu_page" ]; then
+                        # TechPowerUp HTML structure: <dt>Bus Width</dt> followed by <dd>X bit</dd>
+                        # Extract the value from the <dd> tag after "Bus Width"
+                        local found_bus=$(echo "$tpu_page" | grep -A 1 -i "bus width" | grep "<dd" | head -1 | grep -oE '[0-9]+.*bit' | head -1 || echo "")
+                        if [ -n "$found_bus" ]; then
+                            gpu_mem_bus_width="$found_bus"
+                        else
+                            # Try alternative: look for direct GPU spec page via search results
+                            # Extract potential GPU ID from search results
+                            local gpu_id=$(echo "$tpu_page" | grep -oE 'gpu-specs/[^"]+\.c[0-9]+' | head -1 | sed 's/.*\.c//' || echo "")
+                            if [ -n "$gpu_id" ]; then
+                                # Try to construct the full URL - TechPowerUp URLs need the full model name
+                                local gpu_spec_url="https://www.techpowerup.com/gpu-specs/${normalized_name}.c${gpu_id}"
+                                local spec_page=$(curl -s -L --max-time 5 --user-agent "Mozilla/5.0" "$gpu_spec_url" 2>/dev/null || echo "")
+                                if [ -n "$spec_page" ]; then
+                                    found_bus=$(echo "$spec_page" | grep -A 1 -i "bus width" | grep "<dd" | head -1 | grep -oE '[0-9]+.*bit' | head -1 || echo "")
+                                    [ -n "$found_bus" ] && gpu_mem_bus_width="$found_bus"
+                                fi
+                            fi
+                        fi
+                    fi
                 fi
             fi
             

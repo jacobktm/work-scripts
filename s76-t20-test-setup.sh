@@ -80,13 +80,25 @@ collect_tec_info() {
         local expandability_score=""
         local mobile_gaming_system="false"
         # Try current directory first, then script directory
-        local lookup_file="./system-expandability-scores.json"
-        if [ ! -f "$lookup_file" ]; then
-            lookup_file="$(dirname "$(realpath "$0")")/system-expandability-scores.json"
-        fi
+        local current_dir=$(pwd)
+        local script_dir=$(dirname "$(realpath "$0")")
+        local lookup_file=""
         
         echo "DEBUG: Expandability score lookup" >&2
-        echo "  Lookup file: ${lookup_file}" >&2
+        echo "  Current working directory: ${current_dir}" >&2
+        echo "  Script directory: ${script_dir}" >&2
+        
+        # Try current directory first
+        if [ -f "${current_dir}/system-expandability-scores.json" ]; then
+            lookup_file="${current_dir}/system-expandability-scores.json"
+            echo "  Found lookup file in current directory: ${lookup_file}" >&2
+        elif [ -f "${script_dir}/system-expandability-scores.json" ]; then
+            lookup_file="${script_dir}/system-expandability-scores.json"
+            echo "  Found lookup file in script directory: ${lookup_file}" >&2
+        else
+            lookup_file="${current_dir}/system-expandability-scores.json"
+            echo "  Lookup file not found, will use: ${lookup_file}" >&2
+        fi
         echo "  Baseboard version (raw): '${baseboard_version}'" >&2
         echo "  Product name (raw): '${product_name}'" >&2
         

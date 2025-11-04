@@ -84,90 +84,40 @@ collect_tec_info() {
         local current_dir=$(pwd)
         local lookup_file=""
         
-        echo "DEBUG: Expandability score lookup" >&2
-        echo "  Current working directory: ${current_dir}" >&2
-        echo "  SCRIPT_DIR (from top of script): ${SCRIPT_DIR}" >&2
-        
         # Try SCRIPT_DIR first (where script is located), then current directory
         if [ -f "${SCRIPT_DIR}/system-expandability-scores.json" ]; then
             lookup_file="${SCRIPT_DIR}/system-expandability-scores.json"
-            echo "  ✓ Found lookup file in SCRIPT_DIR: ${lookup_file}" >&2
         elif [ -f "${current_dir}/system-expandability-scores.json" ]; then
             lookup_file="${current_dir}/system-expandability-scores.json"
-            echo "  ✓ Found lookup file in current directory: ${lookup_file}" >&2
         else
             lookup_file="${SCRIPT_DIR}/system-expandability-scores.json"
-            echo "  ✗ Lookup file not found in either location, will try: ${lookup_file}" >&2
         fi
-        echo "  Baseboard version (raw): '${baseboard_version}'" >&2
-        echo "  Product name (raw): '${product_name}'" >&2
         
         if [ -f "$lookup_file" ] && command -v jq &> /dev/null; then
-            # Show available keys in the lookup file for debugging
-            echo "  Available keys in lookup file:" >&2
-            jq -r 'keys[]' "$lookup_file" 2>/dev/null | head -10 | sed 's/^/    - /' >&2 || echo "    (could not read keys)" >&2
-            
             local lookup_key=""
             local lookup_result=""
             
             # First try baseboard version
             if [ -n "$baseboard_version" ]; then
                 lookup_key=$(echo "$baseboard_version" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9-]//g')
-                echo "  Trying baseboard version lookup:" >&2
-                echo "    Normalized lookup key: '${lookup_key}'" >&2
                 if [ -n "$lookup_key" ]; then
                     lookup_result=$(jq -r ".[\"$lookup_key\"] // empty" "$lookup_file" 2>/dev/null)
-                    echo "    Lookup result: '${lookup_result}'" >&2
                     # Only use if it's a valid number (not "null" string or empty)
                     if [ -n "$lookup_result" ] && [ "$lookup_result" != "null" ] && [[ "$lookup_result" =~ ^[0-9]+$ ]]; then
                         expandability_score="$lookup_result"
-                        echo "  ✓ Found expandability score: ${expandability_score} for baseboard version: ${baseboard_version} (lookup key: ${lookup_key})" >&2
-                    else
-                        echo "    ✗ No valid score found (result was: '${lookup_result}')" >&2
                     fi
-                else
-                    echo "    ✗ Lookup key is empty after normalization" >&2
                 fi
-            else
-                echo "  Baseboard version is empty, skipping baseboard lookup" >&2
             fi
             
             # If not found, try product name as fallback
             if [ -z "$expandability_score" ] && [ -n "$product_name" ]; then
                 lookup_key=$(echo "$product_name" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9-]//g')
-                echo "  Trying product name lookup:" >&2
-                echo "    Normalized lookup key: '${lookup_key}'" >&2
                 if [ -n "$lookup_key" ]; then
                     lookup_result=$(jq -r ".[\"$lookup_key\"] // empty" "$lookup_file" 2>/dev/null)
-                    echo "    Lookup result: '${lookup_result}'" >&2
                     if [ -n "$lookup_result" ] && [ "$lookup_result" != "null" ] && [[ "$lookup_result" =~ ^[0-9]+$ ]]; then
                         expandability_score="$lookup_result"
-                        echo "  ✓ Found expandability score: ${expandability_score} for product name: ${product_name} (lookup key: ${lookup_key})" >&2
-                    else
-                        echo "    ✗ No valid score found (result was: '${lookup_result}')" >&2
                     fi
-                else
-                    echo "    ✗ Lookup key is empty after normalization" >&2
                 fi
-            else
-                if [ -z "$expandability_score" ]; then
-                    echo "  Product name is empty, skipping product name lookup" >&2
-                else
-                    echo "  Score already found, skipping product name lookup" >&2
-                fi
-            fi
-            
-            # Debug output if still not found
-            if [ -z "$expandability_score" ]; then
-                echo "  ✗ No expandability score found for baseboard version: '${baseboard_version}' or product name: '${product_name}'" >&2
-                echo "  Please check that the normalized keys match one of the keys in the lookup file" >&2
-            fi
-        else
-            if [ ! -f "$lookup_file" ]; then
-                echo "  ✗ Lookup file not found: ${lookup_file}" >&2
-            fi
-            if ! command -v jq &> /dev/null; then
-                echo "  ✗ jq command not found (required for JSON parsing)" >&2
             fi
         fi
         

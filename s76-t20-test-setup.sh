@@ -84,7 +84,11 @@ collect_tec_info() {
             # Normalize lookup key (lowercase, remove spaces/special chars)
             local lookup_key=$(echo "$baseboard_version" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9-]//g')
             if [ -n "$lookup_key" ]; then
-                expandability_score=$(jq -r ".[\"$lookup_key\"] // empty" "$lookup_file" 2>/dev/null)
+                local lookup_result=$(jq -r ".[\"$lookup_key\"] // empty" "$lookup_file" 2>/dev/null)
+                # Only use if it's a valid number (not "null" string or empty)
+                if [ -n "$lookup_result" ] && [ "$lookup_result" != "null" ] && [[ "$lookup_result" =~ ^[0-9]+$ ]]; then
+                    expandability_score="$lookup_result"
+                fi
             fi
         fi
         
@@ -94,6 +98,7 @@ collect_tec_info() {
         fi
         
         # If expandability score not found, prompt user
+        # Skip this entire block if we already have a score (especially for notebooks)
         if [ -z "$expandability_score" ]; then
             # Create response file for expandability calculation
             local system_name_safe=$(echo "$product_name" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9-]/-/g' | sed 's/--*/-/g' | sed 's/^-//' | sed 's/-$//')
@@ -264,97 +269,97 @@ collect_tec_info() {
                 local total_score=100
                 
                 # USB 2.0 or less
-                read -p "USB 2.0 or less (score: 5): " usb2_count
+                read -p "1. USB 2.0 or less (score: 5): " usb2_count
                 usb2_count=${usb2_count:-0}
                 echo "USB 2.0 or less: ${usb2_count}" >> "$es_response_file"
                 total_score=$((total_score + usb2_count * 5))
                 
                 # USB 3.0 or 3.1 Gen 1
-                read -p "USB 3.0 or 3.1 Gen 1 (score: 10): " usb3_gen1_count
+                read -p "2. USB 3.0 or 3.1 Gen 1 (score: 10): " usb3_gen1_count
                 usb3_gen1_count=${usb3_gen1_count:-0}
                 echo "USB 3.0 or 3.1 Gen 1: ${usb3_gen1_count}" >> "$es_response_file"
                 total_score=$((total_score + usb3_gen1_count * 10))
                 
                 # USB 3.1 Gen 2
-                read -p "USB 3.1 Gen 2 (score: 15): " usb3_gen2_count
+                read -p "3. USB 3.1 Gen 2 (score: 15): " usb3_gen2_count
                 usb3_gen2_count=${usb3_gen2_count:-0}
                 echo "USB 3.1 Gen 2: ${usb3_gen2_count}" >> "$es_response_file"
                 total_score=$((total_score + usb3_gen2_count * 15))
                 
                 # USB/Thunderbolt 3.0+ that can provide 100W+
-                read -p "USB/Thunderbolt 3.0+ (100W+ power delivery) (score: 100): " tb_100w_count
+                read -p "4. USB/Thunderbolt 3.0+ (100W+ power delivery) (score: 100): " tb_100w_count
                 tb_100w_count=${tb_100w_count:-0}
                 echo "USB/Thunderbolt 3.0+ (100W+): ${tb_100w_count}" >> "$es_response_file"
                 total_score=$((total_score + tb_100w_count * 100))
                 
                 # USB/Thunderbolt 3.0+ that can provide 60-100W
-                read -p "USB/Thunderbolt 3.0+ (60-100W power delivery) (score: 60): " tb_60_100w_count
+                read -p "5. USB/Thunderbolt 3.0+ (60-100W power delivery) (score: 60): " tb_60_100w_count
                 tb_60_100w_count=${tb_60_100w_count:-0}
                 echo "USB/Thunderbolt 3.0+ (60-100W): ${tb_60_100w_count}" >> "$es_response_file"
                 total_score=$((total_score + tb_60_100w_count * 60))
                 
                 # USB/Thunderbolt 3.0+ that can provide 30-60W
-                read -p "USB/Thunderbolt 3.0+ (30-60W power delivery) (score: 30): " tb_30_60w_count
+                read -p "6. USB/Thunderbolt 3.0+ (30-60W power delivery) (score: 30): " tb_30_60w_count
                 tb_30_60w_count=${tb_30_60w_count:-0}
                 echo "USB/Thunderbolt 3.0+ (30-60W): ${tb_30_60w_count}" >> "$es_response_file"
                 total_score=$((total_score + tb_30_60w_count * 30))
                 
                 # Thunderbolt 3.0+ or USB ports (not otherwise addressed, can't provide 30W+)
-                read -p "Thunderbolt 3.0+ or USB (can't provide 30W+, not otherwise addressed) (score: 20): " tb_other_count
+                read -p "7. Thunderbolt 3.0+ or USB (can't provide 30W+, not otherwise addressed) (score: 20): " tb_other_count
                 tb_other_count=${tb_other_count:-0}
                 echo "Thunderbolt 3.0+ or USB (other): ${tb_other_count}" >> "$es_response_file"
                 total_score=$((total_score + tb_other_count * 20))
                 
                 # Unconnected USB 2.0 motherboard header
-                read -p "Unconnected USB 2.0 motherboard headers (score: 10 per header): " usb2_header_count
+                read -p "8. Unconnected USB 2.0 motherboard headers (score: 10 per header): " usb2_header_count
                 usb2_header_count=${usb2_header_count:-0}
                 echo "Unconnected USB 2.0 headers: ${usb2_header_count}" >> "$es_response_file"
                 total_score=$((total_score + usb2_header_count * 10))
                 
                 # Unconnected USB 3.0 or 3.1 Gen 1 motherboard header
-                read -p "Unconnected USB 3.0 or 3.1 Gen 1 motherboard headers (score: 20 per header): " usb3_header_count
+                read -p "9. Unconnected USB 3.0 or 3.1 Gen 1 motherboard headers (score: 20 per header): " usb3_header_count
                 usb3_header_count=${usb3_header_count:-0}
                 echo "Unconnected USB 3.0 or 3.1 Gen 1 headers: ${usb3_header_count}" >> "$es_response_file"
                 total_score=$((total_score + usb3_header_count * 20))
                 
                 # PCI slot other than PCIe x16 (mechanical slots only)
-                read -p "PCI slots (other than PCIe x16, mechanical only) (score: 25): " pci_other_count
+                read -p "10. PCI slots (other than PCIe x16, mechanical only) (score: 25): " pci_other_count
                 pci_other_count=${pci_other_count:-0}
                 echo "PCI slots (other than PCIe x16): ${pci_other_count}" >> "$es_response_file"
                 total_score=$((total_score + pci_other_count * 25))
                 
                 # PCIe x16 (mechanical slots only)
-                read -p "PCIe x16 slots (mechanical only) (score: 75): " pcie_x16_count
+                read -p "11. PCIe x16 slots (mechanical only) (score: 75): " pcie_x16_count
                 pcie_x16_count=${pcie_x16_count:-0}
                 echo "PCIe x16 slots: ${pcie_x16_count}" >> "$es_response_file"
                 total_score=$((total_score + pcie_x16_count * 75))
                 
                 # Thunderbolt 2.0 or less
-                read -p "Thunderbolt 2.0 or less (score: 20): " tb2_count
+                read -p "12. Thunderbolt 2.0 or less (score: 20): " tb2_count
                 tb2_count=${tb2_count:-0}
                 echo "Thunderbolt 2.0 or less: ${tb2_count}" >> "$es_response_file"
                 total_score=$((total_score + tb2_count * 20))
                 
                 # M.2 (except key M)
-                read -p "M.2 slots (except key M) (score: 10): " m2_other_count
+                read -p "13. M.2 slots (except key M) (score: 10): " m2_other_count
                 m2_other_count=${m2_other_count:-0}
                 echo "M.2 (except key M): ${m2_other_count}" >> "$es_response_file"
                 total_score=$((total_score + m2_other_count * 10))
                 
                 # IDE, SATA, eSATA
-                read -p "IDE, SATA, or eSATA ports (score: 15): " sata_count
+                read -p "14. IDE, SATA, or eSATA ports (score: 15): " sata_count
                 sata_count=${sata_count:-0}
                 echo "IDE, SATA, eSATA: ${sata_count}" >> "$es_response_file"
                 total_score=$((total_score + sata_count * 15))
                 
                 # M.2, key M, SATA express, U.2
-                read -p "M.2 key M, SATA express, or U.2 ports (score: 25): " m2_keym_count
+                read -p "15. M.2 key M, SATA express, or U.2 ports (score: 25): " m2_keym_count
                 m2_keym_count=${m2_keym_count:-0}
                 echo "M.2 key M, SATA express, U.2: ${m2_keym_count}" >> "$es_response_file"
                 total_score=$((total_score + m2_keym_count * 25))
                 
                 # Integrated liquid cooling
-                read -p "Integrated liquid cooling (score: 50): " liquid_cooling_count
+                read -p "16. Integrated liquid cooling (score: 50): " liquid_cooling_count
                 liquid_cooling_count=${liquid_cooling_count:-0}
                 echo "Integrated liquid cooling: ${liquid_cooling_count}" >> "$es_response_file"
                 total_score=$((total_score + liquid_cooling_count * 50))
@@ -367,7 +372,7 @@ collect_tec_info() {
                 echo "       AND at least 8GB of installed compatible system memory; OR"
                 echo "    2) At least 8GB of system memory installed on a 256-bit or"
                 echo "       greater memory interface"
-                read -p "Does this system qualify for the memory interface bonus? (y/n): " memory_bonus
+                read -p "17. Does this system qualify for the memory interface bonus? (y/n): " memory_bonus
                 if [[ "$memory_bonus" =~ ^[Yy] ]]; then
                     echo "Memory Interface Bonus: Yes" >> "$es_response_file"
                     total_score=$((total_score + 100))

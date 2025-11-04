@@ -9,6 +9,7 @@ fi
 
 SCP_USER="$1"
 SCP_IP="$2"
+SCRIPT_DIR="$(dirname "$(realpath "$0")")"
 
 # Install necessary packages
 ./install.sh git inxi powertop edid-decode ethtool jq bc
@@ -79,35 +80,23 @@ collect_tec_info() {
         # Look up expandability score from lookup file using baseboard version
         local expandability_score=""
         local mobile_gaming_system="false"
-        # Try current directory first, then script directory
+        # Use SCRIPT_DIR set at top of script (before any cd commands)
         local current_dir=$(pwd)
-        # Get script directory more reliably - handle symlinks and relative paths
-        local script_path="$0"
-        if [ -L "$script_path" ]; then
-            # If it's a symlink, follow it
-            script_path=$(readlink -f "$script_path" 2>/dev/null || readlink "$script_path" 2>/dev/null || echo "$script_path")
-        fi
-        # Get absolute path if not already absolute
-        if [[ "$script_path" != /* ]]; then
-            script_path="${current_dir}/${script_path}"
-        fi
-        local script_dir=$(dirname "$script_path")
         local lookup_file=""
         
         echo "DEBUG: Expandability score lookup" >&2
         echo "  Current working directory: ${current_dir}" >&2
-        echo "  Script path (\$0): $0" >&2
-        echo "  Resolved script directory: ${script_dir}" >&2
+        echo "  SCRIPT_DIR (from top of script): ${SCRIPT_DIR}" >&2
         
-        # Try current directory first (most common case)
-        if [ -f "${current_dir}/system-expandability-scores.json" ]; then
+        # Try SCRIPT_DIR first (where script is located), then current directory
+        if [ -f "${SCRIPT_DIR}/system-expandability-scores.json" ]; then
+            lookup_file="${SCRIPT_DIR}/system-expandability-scores.json"
+            echo "  ✓ Found lookup file in SCRIPT_DIR: ${lookup_file}" >&2
+        elif [ -f "${current_dir}/system-expandability-scores.json" ]; then
             lookup_file="${current_dir}/system-expandability-scores.json"
             echo "  ✓ Found lookup file in current directory: ${lookup_file}" >&2
-        elif [ -f "${script_dir}/system-expandability-scores.json" ]; then
-            lookup_file="${script_dir}/system-expandability-scores.json"
-            echo "  ✓ Found lookup file in script directory: ${lookup_file}" >&2
         else
-            lookup_file="${current_dir}/system-expandability-scores.json"
+            lookup_file="${SCRIPT_DIR}/system-expandability-scores.json"
             echo "  ✗ Lookup file not found in either location, will try: ${lookup_file}" >&2
         fi
         echo "  Baseboard version (raw): '${baseboard_version}'" >&2

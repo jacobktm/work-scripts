@@ -79,7 +79,11 @@ collect_tec_info() {
         # Look up expandability score from lookup file using baseboard version
         local expandability_score=""
         local mobile_gaming_system="false"
-        local lookup_file="$(dirname "$(realpath "$0")")/system-expandability-scores.json"
+        # Try current directory first, then script directory
+        local lookup_file="./system-expandability-scores.json"
+        if [ ! -f "$lookup_file" ]; then
+            lookup_file="$(dirname "$(realpath "$0")")/system-expandability-scores.json"
+        fi
         
         echo "DEBUG: Expandability score lookup" >&2
         echo "  Lookup file: ${lookup_file}" >&2

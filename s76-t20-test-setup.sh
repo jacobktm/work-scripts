@@ -51,7 +51,28 @@ collect_tec_info() {
         local bios_date=$(sudo dmidecode --type 0 | grep "Release Date:" | cut -d: -f2 | xargs)
         echo "    \"bios_vendor\": \"${bios_vendor}\","
         echo "    \"bios_version\": \"${bios_version}\","
-        echo "    \"bios_date\": \"${bios_date}\""
+        echo "    \"bios_date\": \"${bios_date}\","
+        
+        # Get baseboard version for expandability lookup
+        local baseboard_version=$(sudo dmidecode --type 2 2>/dev/null | grep "Version:" | cut -d: -f2 | xargs)
+        
+        # Look up expandability score from lookup file using baseboard version
+        local expandability_score=""
+        local lookup_file="$(dirname "$(realpath "$0")")/system-expandability-scores.json"
+        if [ -f "$lookup_file" ] && [ -n "$baseboard_version" ] && command -v jq &> /dev/null; then
+            # Normalize lookup key (lowercase, remove spaces/special chars)
+            local lookup_key=$(echo "$baseboard_version" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9-]//g')
+            if [ -n "$lookup_key" ]; then
+                expandability_score=$(jq -r ".[\"$lookup_key\"] // empty" "$lookup_file" 2>/dev/null)
+            fi
+        fi
+        
+        # Output expandability score (null if not found)
+        if [ -n "$expandability_score" ]; then
+            echo "    \"expandability_score\": ${expandability_score}"
+        else
+            echo "    \"expandability_score\": null"
+        fi
         echo "  },"
         
         # Chassis/Form Factor

@@ -26,6 +26,7 @@ sudo dmidecode --type 17 > mem-info.txt
 collect_tec_info() {
     local output_file="t20-eut.txt"
     local json_file="t20-eut.json"
+    local es_response_file=""  # Will be set if expandability calculation is performed
     
     echo "Collecting system information for TEC score calculation..."
     
@@ -53,11 +54,19 @@ collect_tec_info() {
         echo "    \"bios_version\": \"${bios_version}\","
         echo "    \"bios_date\": \"${bios_date}\","
         
+        # Get chassis type early (needed for expandability prompt logic)
+        chassis_type=$(sudo dmidecode --type chassis | grep "Type:" | awk '{print $2}')
+        local is_notebook="false"
+        if [[ "$chassis_type" == "Notebook" || "$chassis_type" == "Laptop" ]]; then
+            is_notebook="true"
+        fi
+        
         # Get baseboard version for expandability lookup
         local baseboard_version=$(sudo dmidecode --type 2 2>/dev/null | grep "Version:" | cut -d: -f2 | xargs)
         
         # Look up expandability score from lookup file using baseboard version
         local expandability_score=""
+        local mobile_gaming_system="false"
         local lookup_file="$(dirname "$(realpath "$0")")/system-expandability-scores.json"
         if [ -f "$lookup_file" ] && [ -n "$baseboard_version" ] && command -v jq &> /dev/null; then
             # Normalize lookup key (lowercase, remove spaces/special chars)
@@ -67,23 +76,543 @@ collect_tec_info() {
             fi
         fi
         
-        # Output expandability score (null if not found)
+        # If notebook has an expandability score, it must be a mobile gaming system
+        if [ -n "$expandability_score" ] && [ "$is_notebook" = "true" ]; then
+            mobile_gaming_system="true"
+        fi
+        
+        # If expandability score not found, prompt user
+        if [ -z "$expandability_score" ]; then
+            # Create response file for expandability calculation
+            local system_name_safe=$(echo "$product_name" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9-]/-/g' | sed 's/--*/-/g' | sed 's/^-//' | sed 's/-$//')
+            es_response_file="${system_name_safe}-es.txt"  # Make it accessible outside this block
+            
+            # Initialize response file
+            {
+                echo "Expandability Score Calculation Responses"
+                echo "========================================"
+                echo "System: ${product_name}"
+                echo "Baseboard Version: ${baseboard_version}"
+                echo "Date: $(date -Iseconds)"
+                echo ""
+            } > "$es_response_file"
+            
+            local should_calculate_es="false"
+            
+            if [ "$is_notebook" = "true" ]; then
+                # Check battery capacity first - if too low, disqualify immediately
+                local battery_device=$(ls /sys/class/power_supply/ 2>/dev/null | grep -E '^BAT[0-9]' | head -1)
+                local battery_capacity_wh=""
+                local can_be_mobile_gaming="false"
+                
+                if [ -n "$battery_device" ]; then
+                    local energy_full_file="/sys/class/power_supply/${battery_device}/energy_full"
+                    local charge_full_file="/sys/class/power_supply/${battery_device}/charge_full"
+                    local voltage_min_design_file="/sys/class/power_supply/${battery_device}/voltage_min_design"
+                    
+                    if [ -f "$energy_full_file" ]; then
+                        # energy_full is in µWh, convert to Wh
+                        local energy_full=$(cat "$energy_full_file" 2>/dev/null || echo "0")
+                        battery_capacity_wh=$(echo "scale=2; ${energy_full} / 1000000" | bc 2>/dev/null || echo "0")
+                    elif [ -f "$charge_full_file" ] && [ -f "$voltage_min_design_file" ]; then
+                        # charge_full is in µAh, need to multiply by voltage
+                        local charge_full=$(cat "$charge_full_file" 2>/dev/null || echo "0")
+                        local voltage_min_design=$(cat "$voltage_min_design_file" 2>/dev/null || echo "0")
+                        battery_capacity_wh=$(echo "scale=2; (${charge_full} * ${voltage_min_design}) / 1000000000" | bc 2>/dev/null || echo "0")
+                    fi
+                fi
+                
+                # Minimum battery capacity threshold for mobile gaming systems (75Wh)
+                # Systems below this cannot qualify as mobile gaming systems
+                local min_battery_capacity=75
+                
+                # Check for discrete GPU (NVIDIA or AMD)
+                local has_discrete_gpu="false"
+                if command -v nvidia-smi &> /dev/null && nvidia-smi &>/dev/null 2>&1; then
+                    # Check if NVIDIA GPU is present and not just integrated
+                    local gpu_name=$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | head -1 | xargs)
+                    if [ -n "$gpu_name" ] && [[ ! "$gpu_name" =~ "Intel|integrated" ]]; then
+                        has_discrete_gpu="true"
+                    fi
+                fi
+                
+                # Also check for AMD GPU via lspci
+                if [ "$has_discrete_gpu" != "true" ]; then
+                    if lspci 2>/dev/null | grep -qi "vga.*amd\|display.*amd\|radeon"; then
+                        has_discrete_gpu="true"
+                    fi
+                fi
+                
+                echo "" >> "$es_response_file"
+                echo "Battery Capacity: ${battery_capacity_wh} Wh" >> "$es_response_file"
+                echo "Has Discrete GPU: ${has_discrete_gpu}" >> "$es_response_file"
+                
+                # Check battery capacity
+                local battery_check_passed="false"
+                if [ -n "$battery_capacity_wh" ] && [ "$(echo "$battery_capacity_wh >= $min_battery_capacity" | bc 2>/dev/null || echo "0")" = "1" ]; then
+                    battery_check_passed="true"
+                    echo "Battery capacity check: PASSED (≥${min_battery_capacity}Wh)" >> "$es_response_file"
+                elif [ -n "$battery_capacity_wh" ]; then
+                    echo "Battery capacity check: FAILED (<${min_battery_capacity}Wh)" >> "$es_response_file"
+                fi
+                
+                # Check discrete GPU
+                local gpu_check_passed="false"
+                if [ "$has_discrete_gpu" = "true" ]; then
+                    gpu_check_passed="true"
+                    echo "Discrete GPU check: PASSED" >> "$es_response_file"
+                else
+                    echo "Discrete GPU check: FAILED" >> "$es_response_file"
+                fi
+                
+                # System can be mobile gaming only if both checks pass
+                if [ "$battery_check_passed" = "true" ] && [ "$gpu_check_passed" = "true" ]; then
+                    can_be_mobile_gaming="true"
+                else
+                    local disqualification_reasons=()
+                    if [ "$battery_check_passed" != "true" ]; then
+                        disqualification_reasons+=("battery capacity below ${min_battery_capacity}Wh")
+                    fi
+                    if [ "$gpu_check_passed" != "true" ]; then
+                        disqualification_reasons+=("no discrete GPU")
+                    fi
+                    echo "System cannot qualify as mobile gaming system due to: $(IFS=', '; echo "${disqualification_reasons[*]}")" >> "$es_response_file"
+                fi
+                
+                if [ "$can_be_mobile_gaming" = "true" ]; then
+                    # For notebooks, check if it's a mobile gaming system
+                    echo ""
+                    echo "═══════════════════════════════════════════════════════════════"
+                    echo "MOBILE GAMING SYSTEM DETERMINATION"
+                    echo "═══════════════════════════════════════════════════════════════"
+                    echo ""
+                    echo "System: ${product_name} (${baseboard_version})"
+                    echo "Battery Capacity: ${battery_capacity_wh} Wh"
+                    echo ""
+                    echo "A mobile gaming system is defined as a notebook computer that"
+                    echo "meets ALL of the following requirements:"
+                    echo ""
+                    echo "  1. Has a discrete GPU (not integrated graphics only)"
+                    echo "  2. GPU has a TGP (Total Graphics Power) of 75W or greater"
+                    echo "  3. GPU memory bandwidth of 256 GB/s or greater"
+                    echo "  4. System has a 16:9 or 16:10 aspect ratio display"
+                    echo ""
+                    echo "═══════════════════════════════════════════════════════════════"
+                    read -p "Is this system a mobile gaming system? (y/n): " is_mobile_gaming
+                    
+                    echo "" >> "$es_response_file"
+                    echo "Is Mobile Gaming System: ${is_mobile_gaming}" >> "$es_response_file"
+                    
+                    if [[ "$is_mobile_gaming" =~ ^[Yy] ]]; then
+                        mobile_gaming_system="true"
+                        should_calculate_es="true"
+                    else
+                        echo "Not a mobile gaming system. No expandability score needed."
+                        echo "Result: Not a mobile gaming system" >> "$es_response_file"
+                    fi
+                else
+                    echo ""
+                    local disqualification_msg=""
+                    if [ "$battery_check_passed" != "true" ]; then
+                        disqualification_msg="Battery capacity (${battery_capacity_wh} Wh) is below the minimum threshold (${min_battery_capacity} Wh)"
+                    fi
+                    if [ "$gpu_check_passed" != "true" ]; then
+                        if [ -n "$disqualification_msg" ]; then
+                            disqualification_msg="${disqualification_msg} and no discrete GPU detected"
+                        else
+                            disqualification_msg="No discrete GPU detected"
+                        fi
+                    fi
+                    echo "System disqualified: ${disqualification_msg}"
+                    echo "Skipping mobile gaming system determination."
+                    echo "Result: Disqualified - ${disqualification_msg}" >> "$es_response_file"
+                fi
+            else
+                # For desktops/workstations, always calculate expandability score
+                should_calculate_es="true"
+            fi
+            
+            # Calculate expandability score based on interface prompts
+            if [ "$should_calculate_es" = "true" ]; then
+                echo ""
+                echo "═══════════════════════════════════════════════════════════════"
+                echo "EXPANDABILITY SCORE CALCULATION"
+                echo "═══════════════════════════════════════════════════════════════"
+                echo ""
+                echo "System: ${product_name} (${baseboard_version})"
+                echo ""
+                echo "Please enter the count for each interface on the mainboard:"
+                echo ""
+                
+                echo "" >> "$es_response_file"
+                echo "Interface Counts:" >> "$es_response_file"
+                echo "-----------------" >> "$es_response_file"
+                
+                # Define interface prompts and their scores
+                local total_score=100
+                
+                # USB 2.0 or less
+                read -p "USB 2.0 or less (score: 5): " usb2_count
+                usb2_count=${usb2_count:-0}
+                echo "USB 2.0 or less: ${usb2_count}" >> "$es_response_file"
+                total_score=$((total_score + usb2_count * 5))
+                
+                # USB 3.0 or 3.1 Gen 1
+                read -p "USB 3.0 or 3.1 Gen 1 (score: 10): " usb3_gen1_count
+                usb3_gen1_count=${usb3_gen1_count:-0}
+                echo "USB 3.0 or 3.1 Gen 1: ${usb3_gen1_count}" >> "$es_response_file"
+                total_score=$((total_score + usb3_gen1_count * 10))
+                
+                # USB 3.1 Gen 2
+                read -p "USB 3.1 Gen 2 (score: 15): " usb3_gen2_count
+                usb3_gen2_count=${usb3_gen2_count:-0}
+                echo "USB 3.1 Gen 2: ${usb3_gen2_count}" >> "$es_response_file"
+                total_score=$((total_score + usb3_gen2_count * 15))
+                
+                # USB/Thunderbolt 3.0+ that can provide 100W+
+                read -p "USB/Thunderbolt 3.0+ (100W+ power delivery) (score: 100): " tb_100w_count
+                tb_100w_count=${tb_100w_count:-0}
+                echo "USB/Thunderbolt 3.0+ (100W+): ${tb_100w_count}" >> "$es_response_file"
+                total_score=$((total_score + tb_100w_count * 100))
+                
+                # USB/Thunderbolt 3.0+ that can provide 60-100W
+                read -p "USB/Thunderbolt 3.0+ (60-100W power delivery) (score: 60): " tb_60_100w_count
+                tb_60_100w_count=${tb_60_100w_count:-0}
+                echo "USB/Thunderbolt 3.0+ (60-100W): ${tb_60_100w_count}" >> "$es_response_file"
+                total_score=$((total_score + tb_60_100w_count * 60))
+                
+                # USB/Thunderbolt 3.0+ that can provide 30-60W
+                read -p "USB/Thunderbolt 3.0+ (30-60W power delivery) (score: 30): " tb_30_60w_count
+                tb_30_60w_count=${tb_30_60w_count:-0}
+                echo "USB/Thunderbolt 3.0+ (30-60W): ${tb_30_60w_count}" >> "$es_response_file"
+                total_score=$((total_score + tb_30_60w_count * 30))
+                
+                # Thunderbolt 3.0+ or USB ports (not otherwise addressed, can't provide 30W+)
+                read -p "Thunderbolt 3.0+ or USB (can't provide 30W+, not otherwise addressed) (score: 20): " tb_other_count
+                tb_other_count=${tb_other_count:-0}
+                echo "Thunderbolt 3.0+ or USB (other): ${tb_other_count}" >> "$es_response_file"
+                total_score=$((total_score + tb_other_count * 20))
+                
+                # Unconnected USB 2.0 motherboard header
+                read -p "Unconnected USB 2.0 motherboard headers (score: 10 per header): " usb2_header_count
+                usb2_header_count=${usb2_header_count:-0}
+                echo "Unconnected USB 2.0 headers: ${usb2_header_count}" >> "$es_response_file"
+                total_score=$((total_score + usb2_header_count * 10))
+                
+                # Unconnected USB 3.0 or 3.1 Gen 1 motherboard header
+                read -p "Unconnected USB 3.0 or 3.1 Gen 1 motherboard headers (score: 20 per header): " usb3_header_count
+                usb3_header_count=${usb3_header_count:-0}
+                echo "Unconnected USB 3.0 or 3.1 Gen 1 headers: ${usb3_header_count}" >> "$es_response_file"
+                total_score=$((total_score + usb3_header_count * 20))
+                
+                # PCI slot other than PCIe x16 (mechanical slots only)
+                read -p "PCI slots (other than PCIe x16, mechanical only) (score: 25): " pci_other_count
+                pci_other_count=${pci_other_count:-0}
+                echo "PCI slots (other than PCIe x16): ${pci_other_count}" >> "$es_response_file"
+                total_score=$((total_score + pci_other_count * 25))
+                
+                # PCIe x16 (mechanical slots only)
+                read -p "PCIe x16 slots (mechanical only) (score: 75): " pcie_x16_count
+                pcie_x16_count=${pcie_x16_count:-0}
+                echo "PCIe x16 slots: ${pcie_x16_count}" >> "$es_response_file"
+                total_score=$((total_score + pcie_x16_count * 75))
+                
+                # Thunderbolt 2.0 or less
+                read -p "Thunderbolt 2.0 or less (score: 20): " tb2_count
+                tb2_count=${tb2_count:-0}
+                echo "Thunderbolt 2.0 or less: ${tb2_count}" >> "$es_response_file"
+                total_score=$((total_score + tb2_count * 20))
+                
+                # M.2 (except key M)
+                read -p "M.2 slots (except key M) (score: 10): " m2_other_count
+                m2_other_count=${m2_other_count:-0}
+                echo "M.2 (except key M): ${m2_other_count}" >> "$es_response_file"
+                total_score=$((total_score + m2_other_count * 10))
+                
+                # IDE, SATA, eSATA
+                read -p "IDE, SATA, or eSATA ports (score: 15): " sata_count
+                sata_count=${sata_count:-0}
+                echo "IDE, SATA, eSATA: ${sata_count}" >> "$es_response_file"
+                total_score=$((total_score + sata_count * 15))
+                
+                # M.2, key M, SATA express, U.2
+                read -p "M.2 key M, SATA express, or U.2 ports (score: 25): " m2_keym_count
+                m2_keym_count=${m2_keym_count:-0}
+                echo "M.2 key M, SATA express, U.2: ${m2_keym_count}" >> "$es_response_file"
+                total_score=$((total_score + m2_keym_count * 25))
+                
+                # Integrated liquid cooling
+                read -p "Integrated liquid cooling (score: 50): " liquid_cooling_count
+                liquid_cooling_count=${liquid_cooling_count:-0}
+                echo "Integrated liquid cooling: ${liquid_cooling_count}" >> "$es_response_file"
+                total_score=$((total_score + liquid_cooling_count * 50))
+                
+                # Memory interface bonus: Either 1) CPU and motherboard support 4+ channels AND 8GB+ installed, OR 2) 8GB+ on 256-bit+ interface
+                echo ""
+                echo "Memory Interface Bonus (score: 100):"
+                echo "  Either:"
+                echo "    1) CPU and motherboard support for 4+ channels of system memory"
+                echo "       AND at least 8GB of installed compatible system memory; OR"
+                echo "    2) At least 8GB of system memory installed on a 256-bit or"
+                echo "       greater memory interface"
+                read -p "Does this system qualify for the memory interface bonus? (y/n): " memory_bonus
+                if [[ "$memory_bonus" =~ ^[Yy] ]]; then
+                    echo "Memory Interface Bonus: Yes" >> "$es_response_file"
+                    total_score=$((total_score + 100))
+                else
+                    echo "Memory Interface Bonus: No" >> "$es_response_file"
+                fi
+                
+                # Review/edit loop
+                local calculation_confirmed="false"
+                while [ "$calculation_confirmed" != "true" ]; do
+                    # Recalculate total score
+                    total_score=100
+                    total_score=$((total_score + usb2_count * 5))
+                    total_score=$((total_score + usb3_gen1_count * 10))
+                    total_score=$((total_score + usb3_gen2_count * 15))
+                    total_score=$((total_score + tb_100w_count * 100))
+                    total_score=$((total_score + tb_60_100w_count * 60))
+                    total_score=$((total_score + tb_30_60w_count * 30))
+                    total_score=$((total_score + tb_other_count * 20))
+                    total_score=$((total_score + usb2_header_count * 10))
+                    total_score=$((total_score + usb3_header_count * 20))
+                    total_score=$((total_score + pci_other_count * 25))
+                    total_score=$((total_score + pcie_x16_count * 75))
+                    total_score=$((total_score + tb2_count * 20))
+                    total_score=$((total_score + m2_other_count * 10))
+                    total_score=$((total_score + sata_count * 15))
+                    total_score=$((total_score + m2_keym_count * 25))
+                    total_score=$((total_score + liquid_cooling_count * 50))
+                    if [[ "$memory_bonus" =~ ^[Yy] ]]; then
+                        total_score=$((total_score + 100))
+                    fi
+                    expandability_score=$total_score
+                    
+                    # Display summary of calculation
+                    echo ""
+                    echo "═══════════════════════════════════════════════════════════════"
+                    echo "EXPANDABILITY SCORE CALCULATION SUMMARY"
+                    echo "═══════════════════════════════════════════════════════════════"
+                    echo ""
+                    printf "%-5s %-55s %5s %10s\n" "Num" "Interface Type" "Count" "Score"
+                    echo "─────────────────────────────────────────────────────────────────────────────────"
+                    printf "%-5s %-55s %5d %10d\n" " 1" "USB 2.0 or less" "$usb2_count" "$((usb2_count * 5))"
+                    printf "%-5s %-55s %5d %10d\n" " 2" "USB 3.0 or 3.1 Gen 1" "$usb3_gen1_count" "$((usb3_gen1_count * 10))"
+                    printf "%-5s %-55s %5d %10d\n" " 3" "USB 3.1 Gen 2" "$usb3_gen2_count" "$((usb3_gen2_count * 15))"
+                    printf "%-5s %-55s %5d %10d\n" " 4" "USB/Thunderbolt 3.0+ (100W+)" "$tb_100w_count" "$((tb_100w_count * 100))"
+                    printf "%-5s %-55s %5d %10d\n" " 5" "USB/Thunderbolt 3.0+ (60-100W)" "$tb_60_100w_count" "$((tb_60_100w_count * 60))"
+                    printf "%-5s %-55s %5d %10d\n" " 6" "USB/Thunderbolt 3.0+ (30-60W)" "$tb_30_60w_count" "$((tb_30_60w_count * 30))"
+                    printf "%-5s %-55s %5d %10d\n" " 7" "Thunderbolt 3.0+ or USB (other)" "$tb_other_count" "$((tb_other_count * 20))"
+                    printf "%-5s %-55s %5d %10d\n" " 8" "Unconnected USB 2.0 headers" "$usb2_header_count" "$((usb2_header_count * 10))"
+                    printf "%-5s %-55s %5d %10d\n" " 9" "Unconnected USB 3.0/3.1 Gen 1 headers" "$usb3_header_count" "$((usb3_header_count * 20))"
+                    printf "%-5s %-55s %5d %10d\n" "10" "PCI slots (other than PCIe x16)" "$pci_other_count" "$((pci_other_count * 25))"
+                    printf "%-5s %-55s %5d %10d\n" "11" "PCIe x16 slots" "$pcie_x16_count" "$((pcie_x16_count * 75))"
+                    printf "%-5s %-55s %5d %10d\n" "12" "Thunderbolt 2.0 or less" "$tb2_count" "$((tb2_count * 20))"
+                    printf "%-5s %-55s %5d %10d\n" "13" "M.2 (except key M)" "$m2_other_count" "$((m2_other_count * 10))"
+                    printf "%-5s %-55s %5d %10d\n" "14" "IDE, SATA, eSATA" "$sata_count" "$((sata_count * 15))"
+                    printf "%-5s %-55s %5d %10d\n" "15" "M.2 key M, SATA express, U.2" "$m2_keym_count" "$((m2_keym_count * 25))"
+                    printf "%-5s %-55s %5d %10d\n" "16" "Integrated liquid cooling" "$liquid_cooling_count" "$((liquid_cooling_count * 50))"
+                    if [[ "$memory_bonus" =~ ^[Yy] ]]; then
+                        printf "%-5s %-55s %5s %10d\n" "17" "Memory Interface Bonus" "Yes" "100"
+                    else
+                        printf "%-5s %-55s %5s %10d\n" "17" "Memory Interface Bonus" "No" "0"
+                    fi
+                    echo "─────────────────────────────────────────────────────────────────────────────────"
+                    printf "%-5s %-55s %5s %10d\n" "" "Base Score (all systems)" "" "100"
+                    printf "%-5s %-55s %5s %10d\n" "" "Interface Contributions" "" "$((expandability_score - 100))"
+                    echo "─────────────────────────────────────────────────────────────────────────────────"
+                    printf "%-5s %-55s %5s %10d\n" "" "TOTAL EXPANDABILITY SCORE" "" "$expandability_score"
+                    echo ""
+                    echo "═══════════════════════════════════════════════════════════════"
+                    
+                    # Prompt for modification or acceptance
+                    echo ""
+                    read -p "Enter number to modify (1-17), or press Enter to accept: " modify_choice
+                    
+                    if [ -z "$modify_choice" ]; then
+                        # User accepted, break out of loop
+                        calculation_confirmed="true"
+                        
+                        # Write final summary to response file
+                        {
+                            echo ""
+                            echo "Final Calculation Summary:"
+                            echo "─────────────────────────────────────────────────────────────────────"
+                            echo "1. USB 2.0 or less: ${usb2_count} × 5 = $((usb2_count * 5))"
+                            echo "2. USB 3.0 or 3.1 Gen 1: ${usb3_gen1_count} × 10 = $((usb3_gen1_count * 10))"
+                            echo "3. USB 3.1 Gen 2: ${usb3_gen2_count} × 15 = $((usb3_gen2_count * 15))"
+                            echo "4. USB/Thunderbolt 3.0+ (100W+): ${tb_100w_count} × 100 = $((tb_100w_count * 100))"
+                            echo "5. USB/Thunderbolt 3.0+ (60-100W): ${tb_60_100w_count} × 60 = $((tb_60_100w_count * 60))"
+                            echo "6. USB/Thunderbolt 3.0+ (30-60W): ${tb_30_60w_count} × 30 = $((tb_30_60w_count * 30))"
+                            echo "7. Thunderbolt 3.0+ or USB (other): ${tb_other_count} × 20 = $((tb_other_count * 20))"
+                            echo "8. Unconnected USB 2.0 headers: ${usb2_header_count} × 10 = $((usb2_header_count * 10))"
+                            echo "9. Unconnected USB 3.0/3.1 Gen 1 headers: ${usb3_header_count} × 20 = $((usb3_header_count * 20))"
+                            echo "10. PCI slots (other than PCIe x16): ${pci_other_count} × 25 = $((pci_other_count * 25))"
+                            echo "11. PCIe x16 slots: ${pcie_x16_count} × 75 = $((pcie_x16_count * 75))"
+                            echo "12. Thunderbolt 2.0 or less: ${tb2_count} × 20 = $((tb2_count * 20))"
+                            echo "13. M.2 (except key M): ${m2_other_count} × 10 = $((m2_other_count * 10))"
+                            echo "14. IDE, SATA, eSATA: ${sata_count} × 15 = $((sata_count * 15))"
+                            echo "15. M.2 key M, SATA express, U.2: ${m2_keym_count} × 25 = $((m2_keym_count * 25))"
+                            echo "16. Integrated liquid cooling: ${liquid_cooling_count} × 50 = $((liquid_cooling_count * 50))"
+                            if [[ "$memory_bonus" =~ ^[Yy] ]]; then
+                                echo "17. Memory Interface Bonus: Yes × 100 = 100"
+                            else
+                                echo "17. Memory Interface Bonus: No × 100 = 0"
+                            fi
+                            echo "─────────────────────────────────────────────────────────────────────"
+                            echo "Base Score (all systems): 100"
+                            echo "Interface Contributions: $((expandability_score - 100))"
+                            echo "TOTAL EXPANDABILITY SCORE: ${expandability_score}"
+                        } >> "$es_response_file"
+                        echo "Calculation confirmed. Expandability Score: ${expandability_score}"
+                    else
+                        # User wants to modify a specific entry
+                        case "$modify_choice" in
+                            1)
+                                read -p "USB 2.0 or less (score: 5): " usb2_count
+                                usb2_count=${usb2_count:-0}
+                                echo "Updated: USB 2.0 or less: ${usb2_count}" >> "$es_response_file"
+                                ;;
+                            2)
+                                read -p "USB 3.0 or 3.1 Gen 1 (score: 10): " usb3_gen1_count
+                                usb3_gen1_count=${usb3_gen1_count:-0}
+                                echo "Updated: USB 3.0 or 3.1 Gen 1: ${usb3_gen1_count}" >> "$es_response_file"
+                                ;;
+                            3)
+                                read -p "USB 3.1 Gen 2 (score: 15): " usb3_gen2_count
+                                usb3_gen2_count=${usb3_gen2_count:-0}
+                                echo "Updated: USB 3.1 Gen 2: ${usb3_gen2_count}" >> "$es_response_file"
+                                ;;
+                            4)
+                                read -p "USB/Thunderbolt 3.0+ (100W+ power delivery) (score: 100): " tb_100w_count
+                                tb_100w_count=${tb_100w_count:-0}
+                                echo "Updated: USB/Thunderbolt 3.0+ (100W+): ${tb_100w_count}" >> "$es_response_file"
+                                ;;
+                            5)
+                                read -p "USB/Thunderbolt 3.0+ (60-100W power delivery) (score: 60): " tb_60_100w_count
+                                tb_60_100w_count=${tb_60_100w_count:-0}
+                                echo "Updated: USB/Thunderbolt 3.0+ (60-100W): ${tb_60_100w_count}" >> "$es_response_file"
+                                ;;
+                            6)
+                                read -p "USB/Thunderbolt 3.0+ (30-60W power delivery) (score: 30): " tb_30_60w_count
+                                tb_30_60w_count=${tb_30_60w_count:-0}
+                                echo "Updated: USB/Thunderbolt 3.0+ (30-60W): ${tb_30_60w_count}" >> "$es_response_file"
+                                ;;
+                            7)
+                                read -p "Thunderbolt 3.0+ or USB (can't provide 30W+, not otherwise addressed) (score: 20): " tb_other_count
+                                tb_other_count=${tb_other_count:-0}
+                                echo "Updated: Thunderbolt 3.0+ or USB (other): ${tb_other_count}" >> "$es_response_file"
+                                ;;
+                            8)
+                                read -p "Unconnected USB 2.0 motherboard headers (score: 10 per header): " usb2_header_count
+                                usb2_header_count=${usb2_header_count:-0}
+                                echo "Updated: Unconnected USB 2.0 headers: ${usb2_header_count}" >> "$es_response_file"
+                                ;;
+                            9)
+                                read -p "Unconnected USB 3.0 or 3.1 Gen 1 motherboard headers (score: 20 per header): " usb3_header_count
+                                usb3_header_count=${usb3_header_count:-0}
+                                echo "Updated: Unconnected USB 3.0 or 3.1 Gen 1 headers: ${usb3_header_count}" >> "$es_response_file"
+                                ;;
+                            10)
+                                read -p "PCI slots (other than PCIe x16, mechanical only) (score: 25): " pci_other_count
+                                pci_other_count=${pci_other_count:-0}
+                                echo "Updated: PCI slots (other than PCIe x16): ${pci_other_count}" >> "$es_response_file"
+                                ;;
+                            11)
+                                read -p "PCIe x16 slots (mechanical only) (score: 75): " pcie_x16_count
+                                pcie_x16_count=${pcie_x16_count:-0}
+                                echo "Updated: PCIe x16 slots: ${pcie_x16_count}" >> "$es_response_file"
+                                ;;
+                            12)
+                                read -p "Thunderbolt 2.0 or less (score: 20): " tb2_count
+                                tb2_count=${tb2_count:-0}
+                                echo "Updated: Thunderbolt 2.0 or less: ${tb2_count}" >> "$es_response_file"
+                                ;;
+                            13)
+                                read -p "M.2 slots (except key M) (score: 10): " m2_other_count
+                                m2_other_count=${m2_other_count:-0}
+                                echo "Updated: M.2 (except key M): ${m2_other_count}" >> "$es_response_file"
+                                ;;
+                            14)
+                                read -p "IDE, SATA, or eSATA ports (score: 15): " sata_count
+                                sata_count=${sata_count:-0}
+                                echo "Updated: IDE, SATA, eSATA: ${sata_count}" >> "$es_response_file"
+                                ;;
+                            15)
+                                read -p "M.2 key M, SATA express, or U.2 ports (score: 25): " m2_keym_count
+                                m2_keym_count=${m2_keym_count:-0}
+                                echo "Updated: M.2 key M, SATA express, U.2: ${m2_keym_count}" >> "$es_response_file"
+                                ;;
+                            16)
+                                read -p "Integrated liquid cooling (score: 50): " liquid_cooling_count
+                                liquid_cooling_count=${liquid_cooling_count:-0}
+                                echo "Updated: Integrated liquid cooling: ${liquid_cooling_count}" >> "$es_response_file"
+                                ;;
+                            17)
+                                echo ""
+                                echo "Memory Interface Bonus (score: 100):"
+                                echo "  Either:"
+                                echo "    1) CPU and motherboard support for 4+ channels of system memory"
+                                echo "       AND at least 8GB of installed compatible system memory; OR"
+                                echo "    2) At least 8GB of system memory installed on a 256-bit or"
+                                echo "       greater memory interface"
+                                read -p "Does this system qualify for the memory interface bonus? (y/n): " memory_bonus
+                                if [[ "$memory_bonus" =~ ^[Yy] ]]; then
+                                    echo "Updated: Memory Interface Bonus: Yes" >> "$es_response_file"
+                                else
+                                    echo "Updated: Memory Interface Bonus: No" >> "$es_response_file"
+                                fi
+                                ;;
+                            *)
+                                echo "Invalid choice. Please enter a number from 1-17."
+                                ;;
+                        esac
+                    fi
+                done
+                
+                # Write confirmation to response file
+                echo "" >> "$es_response_file"
+                echo "Calculation Confirmed: Yes" >> "$es_response_file"
+                
+                # Offer to save to lookup file
+                if [ -n "$expandability_score" ] && [ -n "$baseboard_version" ] && [ -f "$lookup_file" ] && command -v jq &> /dev/null; then
+                    local lookup_key=$(echo "$baseboard_version" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9-]//g')
+                    if [ -n "$lookup_key" ]; then
+                        read -p "Save this score to lookup file for future use? (y/n): " save_score
+                        if [[ "$save_score" =~ ^[Yy] ]]; then
+                            local temp_file=$(mktemp)
+                            jq ". + {\"$lookup_key\": $expandability_score}" "$lookup_file" > "$temp_file" && mv "$temp_file" "$lookup_file"
+                            echo "Score saved to lookup file."
+                            echo "Saved to lookup file: Yes" >> "$es_response_file"
+                        else
+                            echo "Saved to lookup file: No" >> "$es_response_file"
+                        fi
+                    fi
+                fi
+            fi
+        fi
+        
+        # Output expandability score and mobile gaming system flag
         if [ -n "$expandability_score" ]; then
-            echo "    \"expandability_score\": ${expandability_score}"
+            echo -n "    \"expandability_score\": ${expandability_score}"
         else
-            echo "    \"expandability_score\": null"
+            echo -n "    \"expandability_score\": null"
+        fi
+        if [ "$is_notebook" = "true" ]; then
+            echo ","
+            echo "    \"mobile_gaming_system\": ${mobile_gaming_system}"
+        else
+            echo ""
         fi
         echo "  },"
         
         # Chassis/Form Factor
         echo "  \"chassis\": {"
-        chassis_type=$(sudo dmidecode --type chassis | grep "Type:" | awk '{print $2}')
         local chassis_manufacturer=$(sudo dmidecode --type chassis | grep "Manufacturer:" | cut -d: -f2 | xargs)
         local chassis_version=$(sudo dmidecode --type chassis | grep "Version:" | cut -d: -f2 | xargs)
-        local is_notebook="false"
         local system_classification="Desktop"
         if [[ "$chassis_type" == "Notebook" || "$chassis_type" == "Laptop" ]]; then
-            is_notebook="true"
             system_classification="Notebook"
         elif [[ "$chassis_type" == "Tower" || "$chassis_type" == "Desktop" ]]; then
             # Check if it's a workstation (typically has professional GPU or ECC memory)
@@ -688,15 +1217,23 @@ collect_tec_info() {
     echo "System information collected and saved to $json_file and $output_file"
     
     # SCP to server
-    echo "Attempting to copy file to 10.17.89.69..."
+    echo "Attempting to copy files to 10.17.89.69..."
     if command -v scp &> /dev/null; then
+        # Copy main output file
         scp "$output_file" "system76@10.17.89.69:~/t20-eut.txt" 2>/dev/null || \
         scp "$output_file" "root@10.17.89.69:~/t20-eut.txt" 2>/dev/null || \
         scp "$json_file" "system76@10.17.89.69:~/t20-eut.txt" 2>/dev/null || \
         scp "$json_file" "root@10.17.89.69:~/t20-eut.txt" 2>/dev/null || \
-        echo "Warning: Could not SCP file to 10.17.89.69. Please copy $output_file manually."
+        echo "Warning: Could not SCP main file to 10.17.89.69. Please copy $output_file manually."
+        
+        # Copy expandability score response file if it was created
+        if [ -n "$es_response_file" ] && [ -f "$es_response_file" ]; then
+            scp "$es_response_file" "system76@10.17.89.69:~/${es_response_file}" 2>/dev/null || \
+            scp "$es_response_file" "root@10.17.89.69:~/${es_response_file}" 2>/dev/null || \
+            echo "Warning: Could not SCP expandability score file to 10.17.89.69. Please copy $es_response_file manually."
+        fi
     else
-        echo "Warning: scp not found. Please copy $output_file to 10.17.89.69 manually."
+        echo "Warning: scp not found. Please copy $output_file and $es_response_file to 10.17.89.69 manually."
     fi
 }
 

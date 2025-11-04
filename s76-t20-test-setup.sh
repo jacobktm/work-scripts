@@ -1282,21 +1282,80 @@ collect_tec_info() {
     
     echo "System information collected and saved to $json_file and $output_file"
     
-    # SCP to server
+    # SCP to server (combine into one command to prompt for password only once)
     echo "Attempting to copy files to ${scp_user}@${scp_ip}..."
-    if command -v scp &> /dev/null; then
-        # Copy main output file
-        scp "$output_file" "${scp_user}@${scp_ip}:~/t20-eut.txt" 2>/dev/null || \
-        scp "$json_file" "${scp_user}@${scp_ip}:~/t20-eut.txt" 2>/dev/null || \
-        echo "Warning: Could not SCP main file to ${scp_user}@${scp_ip}. Please copy $output_file manually."
+    
+    # Determine which main file to use
+    local main_file=""
+    if [ -f "$output_file" ]; then
+        main_file="$output_file"
+    elif [ -f "$json_file" ]; then
+        main_file="$json_file"
+    fi
+    
+    if command -v scp &> /dev/null || command -v rsync &> /dev/null; then
+        # Create a temporary directory and copy files with correct names
+        local temp_dir=$(mktemp -d)
+        local cleanup_temp=1
         
-        # Copy expandability score response file if it was created
+        # Copy main file with correct remote name
+        if [ -n "$main_file" ]; then
+            cp "$main_file" "$temp_dir/t20-eut.txt" 2>/dev/null || cleanup_temp=0
+        fi
+        
+        # Copy expandability score response file if it exists
         if [ -n "$es_response_file" ] && [ -f "$es_response_file" ]; then
-            scp "$es_response_file" "${scp_user}@${scp_ip}:~/${es_response_file}" 2>/dev/null || \
-            echo "Warning: Could not SCP expandability score file to ${scp_user}@${scp_ip}. Please copy $es_response_file manually."
+            cp "$es_response_file" "$temp_dir/$(basename "$es_response_file")" 2>/dev/null || cleanup_temp=0
+        fi
+        
+        # Transfer the entire directory contents in one command
+        if [ $cleanup_temp -eq 1 ] && [ -n "$main_file" ]; then
+            if command -v rsync &> /dev/null; then
+                # rsync: trailing slash on source copies contents, not directory
+                rsync -avz "$temp_dir/" "${scp_user}@${scp_ip}:~/" || {
+                    echo "Warning: Could not rsync files to ${scp_user}@${scp_ip}."
+                    cleanup_temp=0
+                }
+            else
+                # scp: need to copy files individually or use a different approach
+                # Use find to get all files and copy them
+                (cd "$temp_dir" && find . -type f -exec scp {} "${scp_user}@${scp_ip}:~/" \; 2>/dev/null) || {
+                    echo "Warning: Could not SCP files to ${scp_user}@${scp_ip}."
+                    cleanup_temp=0
+                }
+            fi
+            
+            # Clean up temp directory
+            rm -rf "$temp_dir"
+        else
+            # Fallback: sequential transfers if temp setup failed
+            local scp_failed=0
+            if [ -n "$main_file" ]; then
+                if command -v rsync &> /dev/null; then
+                    rsync -avz "$main_file" "${scp_user}@${scp_ip}:~/t20-eut.txt" || scp_failed=1
+                else
+                    scp "$main_file" "${scp_user}@${scp_ip}:~/t20-eut.txt" || scp_failed=1
+                fi
+            fi
+            if [ -n "$es_response_file" ] && [ -f "$es_response_file" ]; then
+                if command -v rsync &> /dev/null; then
+                    rsync -avz "$es_response_file" "${scp_user}@${scp_ip}:~/" || scp_failed=1
+                else
+                    scp "$es_response_file" "${scp_user}@${scp_ip}:~/" || scp_failed=1
+                fi
+            fi
+            
+            if [ $scp_failed -eq 1 ]; then
+                echo "Warning: Could not transfer files to ${scp_user}@${scp_ip}. Please copy files manually:"
+                [ -n "$main_file" ] && echo "  $main_file -> ~/t20-eut.txt"
+                [ -n "$es_response_file" ] && [ -f "$es_response_file" ] && echo "  $es_response_file -> ~/$(basename "$es_response_file")"
+            fi
+            [ -d "$temp_dir" ] && rm -rf "$temp_dir"
         fi
     else
-        echo "Warning: scp not found. Please copy $output_file and $es_response_file to ${scp_user}@${scp_ip} manually."
+        echo "Warning: Neither rsync nor scp found. Please copy files manually to ${scp_user}@${scp_ip}:"
+        [ -n "$main_file" ] && echo "  $main_file -> ~/t20-eut.txt"
+        [ -n "$es_response_file" ] && [ -f "$es_response_file" ] && echo "  $es_response_file -> ~/$(basename "$es_response_file")"
     fi
 }
 

@@ -440,7 +440,7 @@ collect_tec_info() {
                     
                     # Prompt for modification or acceptance
                     echo ""
-                    read -p "Enter number to modify (1-17), or press Enter to accept: " modify_choice
+                    read -p "Enter number to modify (1-17), or press Enter to accept [Current ES: ${expandability_score}]: " modify_choice
                     
                     if [ -z "$modify_choice" ]; then
                         # User accepted, break out of loop
@@ -580,6 +580,32 @@ collect_tec_info() {
                                 echo "Invalid choice. Please enter a number from 1-17."
                                 ;;
                         esac
+                        
+                        # Recalculate expandability score after modification
+                        if [ "$modify_choice" -ge 1 ] && [ "$modify_choice" -le 17 ]; then
+                            total_score=100
+                            total_score=$((total_score + usb2_count * 5))
+                            total_score=$((total_score + usb3_gen1_count * 10))
+                            total_score=$((total_score + usb3_gen2_count * 15))
+                            total_score=$((total_score + tb_100w_count * 100))
+                            total_score=$((total_score + tb_60_100w_count * 60))
+                            total_score=$((total_score + tb_30_60w_count * 30))
+                            total_score=$((total_score + tb_other_count * 20))
+                            total_score=$((total_score + usb2_header_count * 10))
+                            total_score=$((total_score + usb3_header_count * 20))
+                            total_score=$((total_score + pci_other_count * 25))
+                            total_score=$((total_score + pcie_x16_count * 75))
+                            total_score=$((total_score + tb2_count * 20))
+                            total_score=$((total_score + m2_other_count * 10))
+                            total_score=$((total_score + sata_count * 15))
+                            total_score=$((total_score + m2_keym_count * 25))
+                            total_score=$((total_score + liquid_cooling_count * 50))
+                            if [[ "$memory_bonus" =~ ^[Yy] ]]; then
+                                total_score=$((total_score + 100))
+                            fi
+                            expandability_score=$total_score
+                            echo "Updated Expandability Score: ${expandability_score}"
+                        fi
                     fi
                 done
                 

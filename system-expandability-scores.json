@@ -19,6 +19,7 @@
   "thelio-mira-r1": 735,
   "thelio-mira-r2": 735,
   "thelio-mira-r3": 700,
+  "thelio-mira-r4": 565,
   "thelio-mira-b1": 685,
   "thelio-mira-b2": 520,
   "thelio-mira-b3": 680,
@@ -34,5 +35,6 @@
   "thelio-mega-r1": 950,
   "thelio-mega-r2": 1190,
   "thelio-mega-r3": 1005,
+  "thelio-mega-r4": 880,
   "thelio-massive-b1": 1130
 }

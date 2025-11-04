@@ -227,23 +227,23 @@ collect_tec_info() {
                 
                 if [ "$can_be_mobile_gaming" = "true" ]; then
                     # For notebooks, check if it's a mobile gaming system
-                    echo ""
-                    echo "═══════════════════════════════════════════════════════════════"
-                    echo "MOBILE GAMING SYSTEM DETERMINATION"
-                    echo "═══════════════════════════════════════════════════════════════"
-                    echo ""
-                    echo "System: ${product_name} (${baseboard_version})"
-                    echo "Battery Capacity: ${battery_capacity_wh} Wh"
-                    echo ""
-                    echo "A mobile gaming system is defined as a notebook computer that"
-                    echo "meets ALL of the following requirements:"
-                    echo ""
-                    echo "  1. Has a discrete GPU (not integrated graphics only)"
-                    echo "  2. GPU has a TGP (Total Graphics Power) of 75W or greater"
-                    echo "  3. GPU memory bandwidth of 256 GB/s or greater"
-                    echo "  4. System has a 16:9 or 16:10 aspect ratio display"
-                    echo ""
-                    echo "═══════════════════════════════════════════════════════════════"
+                    echo "" >&2
+                    echo "═══════════════════════════════════════════════════════════════" >&2
+                    echo "MOBILE GAMING SYSTEM DETERMINATION" >&2
+                    echo "═══════════════════════════════════════════════════════════════" >&2
+                    echo "" >&2
+                    echo "System: ${product_name} (${baseboard_version})" >&2
+                    echo "Battery Capacity: ${battery_capacity_wh} Wh" >&2
+                    echo "" >&2
+                    echo "A mobile gaming system is defined as a notebook computer that" >&2
+                    echo "meets ALL of the following requirements:" >&2
+                    echo "" >&2
+                    echo "  1. Has a discrete GPU (not integrated graphics only)" >&2
+                    echo "  2. GPU has a TGP (Total Graphics Power) of 75W or greater" >&2
+                    echo "  3. GPU memory bandwidth of 256 GB/s or greater" >&2
+                    echo "  4. System has a 16:9 or 16:10 aspect ratio display" >&2
+                    echo "" >&2
+                    echo "═══════════════════════════════════════════════════════════════" >&2
                     read -p "Is this system a mobile gaming system? (y/n): " is_mobile_gaming
                     
                     echo "" >> "$es_response_file"
@@ -253,11 +253,11 @@ collect_tec_info() {
                         mobile_gaming_system="true"
                         should_calculate_es="true"
                     else
-                        echo "Not a mobile gaming system. No expandability score needed."
+                        echo "Not a mobile gaming system. No expandability score needed." >&2
                         echo "Result: Not a mobile gaming system" >> "$es_response_file"
                     fi
                 else
-                    echo ""
+                    echo "" >&2
                     local disqualification_msg=""
                     if [ "$battery_check_passed" != "true" ]; then
                         disqualification_msg="Battery capacity (${battery_capacity_wh} Wh) is below the minimum threshold (${min_battery_capacity} Wh)"
@@ -269,8 +269,8 @@ collect_tec_info() {
                             disqualification_msg="No discrete GPU detected"
                         fi
                     fi
-                    echo "System disqualified: ${disqualification_msg}"
-                    echo "Skipping mobile gaming system determination."
+                    echo "System disqualified: ${disqualification_msg}" >&2
+                    echo "Skipping mobile gaming system determination." >&2
                     echo "Result: Disqualified - ${disqualification_msg}" >> "$es_response_file"
                 fi
             else
@@ -280,15 +280,15 @@ collect_tec_info() {
             
             # Calculate expandability score based on interface prompts
             if [ "$should_calculate_es" = "true" ]; then
-                echo ""
-                echo "═══════════════════════════════════════════════════════════════"
-                echo "EXPANDABILITY SCORE CALCULATION"
-                echo "═══════════════════════════════════════════════════════════════"
-                echo ""
-                echo "System: ${product_name} (${baseboard_version})"
-                echo ""
-                echo "Please enter the count for each interface on the mainboard:"
-                echo ""
+                echo "" >&2
+                echo "═══════════════════════════════════════════════════════════════" >&2
+                echo "EXPANDABILITY SCORE CALCULATION" >&2
+                echo "═══════════════════════════════════════════════════════════════" >&2
+                echo "" >&2
+                echo "System: ${product_name} (${baseboard_version})" >&2
+                echo "" >&2
+                echo "Please enter the count for each interface on the mainboard:" >&2
+                echo "" >&2
                 
                 echo "" >> "$es_response_file"
                 echo "Interface Counts:" >> "$es_response_file"
@@ -394,13 +394,13 @@ collect_tec_info() {
                 total_score=$((total_score + liquid_cooling_count * 50))
                 
                 # Memory interface bonus: Either 1) CPU and motherboard support 4+ channels AND 8GB+ installed, OR 2) 8GB+ on 256-bit+ interface
-                echo ""
-                echo "Memory Interface Bonus (score: 100):"
-                echo "  Either:"
-                echo "    1) CPU and motherboard support for 4+ channels of system memory"
-                echo "       AND at least 8GB of installed compatible system memory; OR"
-                echo "    2) At least 8GB of system memory installed on a 256-bit or"
-                echo "       greater memory interface"
+                echo "" >&2
+                echo "Memory Interface Bonus (score: 100):" >&2
+                echo "  Either:" >&2
+                echo "    1) CPU and motherboard support for 4+ channels of system memory" >&2
+                echo "       AND at least 8GB of installed compatible system memory; OR" >&2
+                echo "    2) At least 8GB of system memory installed on a 256-bit or" >&2
+                echo "       greater memory interface" >&2
                 read -p "17. Does this system qualify for the memory interface bonus? (y/n): " memory_bonus
                 if [[ "$memory_bonus" =~ ^[Yy] ]]; then
                     echo "Memory Interface Bonus: Yes" >> "$es_response_file"
@@ -436,41 +436,41 @@ collect_tec_info() {
                     expandability_score=$total_score
                     
                     # Display summary of calculation
-                    echo ""
-                    echo "═══════════════════════════════════════════════════════════════"
-                    echo "EXPANDABILITY SCORE CALCULATION SUMMARY"
-                    echo "═══════════════════════════════════════════════════════════════"
-                    echo ""
-                    printf "%-5s %-55s %5s %10s\n" "Num" "Interface Type" "Count" "Score"
-                    echo "─────────────────────────────────────────────────────────────────────────────────"
-                    printf "%-5s %-55s %5d %10d\n" " 1" "USB 2.0 or less" "$usb2_count" "$((usb2_count * 5))"
-                    printf "%-5s %-55s %5d %10d\n" " 2" "USB 3.0 or 3.1 Gen 1" "$usb3_gen1_count" "$((usb3_gen1_count * 10))"
-                    printf "%-5s %-55s %5d %10d\n" " 3" "USB 3.1 Gen 2" "$usb3_gen2_count" "$((usb3_gen2_count * 15))"
-                    printf "%-5s %-55s %5d %10d\n" " 4" "USB/Thunderbolt 3.0+ (100W+)" "$tb_100w_count" "$((tb_100w_count * 100))"
-                    printf "%-5s %-55s %5d %10d\n" " 5" "USB/Thunderbolt 3.0+ (60-100W)" "$tb_60_100w_count" "$((tb_60_100w_count * 60))"
-                    printf "%-5s %-55s %5d %10d\n" " 6" "USB/Thunderbolt 3.0+ (30-60W)" "$tb_30_60w_count" "$((tb_30_60w_count * 30))"
-                    printf "%-5s %-55s %5d %10d\n" " 7" "Thunderbolt 3.0+ or USB (other)" "$tb_other_count" "$((tb_other_count * 20))"
-                    printf "%-5s %-55s %5d %10d\n" " 8" "Unconnected USB 2.0 headers" "$usb2_header_count" "$((usb2_header_count * 10))"
-                    printf "%-5s %-55s %5d %10d\n" " 9" "Unconnected USB 3.0/3.1 Gen 1 headers" "$usb3_header_count" "$((usb3_header_count * 20))"
-                    printf "%-5s %-55s %5d %10d\n" "10" "PCI slots (other than PCIe x16)" "$pci_other_count" "$((pci_other_count * 25))"
-                    printf "%-5s %-55s %5d %10d\n" "11" "PCIe x16 slots" "$pcie_x16_count" "$((pcie_x16_count * 75))"
-                    printf "%-5s %-55s %5d %10d\n" "12" "Thunderbolt 2.0 or less" "$tb2_count" "$((tb2_count * 20))"
-                    printf "%-5s %-55s %5d %10d\n" "13" "M.2 (except key M)" "$m2_other_count" "$((m2_other_count * 10))"
-                    printf "%-5s %-55s %5d %10d\n" "14" "IDE, SATA, eSATA" "$sata_count" "$((sata_count * 15))"
-                    printf "%-5s %-55s %5d %10d\n" "15" "M.2 key M, SATA express, U.2" "$m2_keym_count" "$((m2_keym_count * 25))"
-                    printf "%-5s %-55s %5d %10d\n" "16" "Integrated liquid cooling" "$liquid_cooling_count" "$((liquid_cooling_count * 50))"
+                    echo "" >&2
+                    echo "═══════════════════════════════════════════════════════════════" >&2
+                    echo "EXPANDABILITY SCORE CALCULATION SUMMARY" >&2
+                    echo "═══════════════════════════════════════════════════════════════" >&2
+                    echo "" >&2
+                    printf "%-5s %-55s %5s %10s\n" "Num" "Interface Type" "Count" "Score" >&2
+                    echo "─────────────────────────────────────────────────────────────────────────────────" >&2
+                    printf "%-5s %-55s %5d %10d\n" " 1" "USB 2.0 or less" "$usb2_count" "$((usb2_count * 5))" >&2
+                    printf "%-5s %-55s %5d %10d\n" " 2" "USB 3.0 or 3.1 Gen 1" "$usb3_gen1_count" "$((usb3_gen1_count * 10))" >&2
+                    printf "%-5s %-55s %5d %10d\n" " 3" "USB 3.1 Gen 2" "$usb3_gen2_count" "$((usb3_gen2_count * 15))" >&2
+                    printf "%-5s %-55s %5d %10d\n" " 4" "USB/Thunderbolt 3.0+ (100W+)" "$tb_100w_count" "$((tb_100w_count * 100))" >&2
+                    printf "%-5s %-55s %5d %10d\n" " 5" "USB/Thunderbolt 3.0+ (60-100W)" "$tb_60_100w_count" "$((tb_60_100w_count * 60))" >&2
+                    printf "%-5s %-55s %5d %10d\n" " 6" "USB/Thunderbolt 3.0+ (30-60W)" "$tb_30_60w_count" "$((tb_30_60w_count * 30))" >&2
+                    printf "%-5s %-55s %5d %10d\n" " 7" "Thunderbolt 3.0+ or USB (other)" "$tb_other_count" "$((tb_other_count * 20))" >&2
+                    printf "%-5s %-55s %5d %10d\n" " 8" "Unconnected USB 2.0 headers" "$usb2_header_count" "$((usb2_header_count * 10))" >&2
+                    printf "%-5s %-55s %5d %10d\n" " 9" "Unconnected USB 3.0/3.1 Gen 1 headers" "$usb3_header_count" "$((usb3_header_count * 20))" >&2
+                    printf "%-5s %-55s %5d %10d\n" "10" "PCI slots (other than PCIe x16)" "$pci_other_count" "$((pci_other_count * 25))" >&2
+                    printf "%-5s %-55s %5d %10d\n" "11" "PCIe x16 slots" "$pcie_x16_count" "$((pcie_x16_count * 75))" >&2
+                    printf "%-5s %-55s %5d %10d\n" "12" "Thunderbolt 2.0 or less" "$tb2_count" "$((tb2_count * 20))" >&2
+                    printf "%-5s %-55s %5d %10d\n" "13" "M.2 (except key M)" "$m2_other_count" "$((m2_other_count * 10))" >&2
+                    printf "%-5s %-55s %5d %10d\n" "14" "IDE, SATA, eSATA" "$sata_count" "$((sata_count * 15))" >&2
+                    printf "%-5s %-55s %5d %10d\n" "15" "M.2 key M, SATA express, U.2" "$m2_keym_count" "$((m2_keym_count * 25))" >&2
+                    printf "%-5s %-55s %5d %10d\n" "16" "Integrated liquid cooling" "$liquid_cooling_count" "$((liquid_cooling_count * 50))" >&2
                     if [[ "$memory_bonus" =~ ^[Yy] ]]; then
-                        printf "%-5s %-55s %5s %10d\n" "17" "Memory Interface Bonus" "Yes" "100"
+                        printf "%-5s %-55s %5s %10d\n" "17" "Memory Interface Bonus" "Yes" "100" >&2
                     else
-                        printf "%-5s %-55s %5s %10d\n" "17" "Memory Interface Bonus" "No" "0"
+                        printf "%-5s %-55s %5s %10d\n" "17" "Memory Interface Bonus" "No" "0" >&2
                     fi
-                    echo "─────────────────────────────────────────────────────────────────────────────────"
-                    printf "%-5s %-55s %5s %10d\n" "" "Base Score (all systems)" "" "100"
-                    printf "%-5s %-55s %5s %10d\n" "" "Interface Contributions" "" "$((expandability_score - 100))"
-                    echo "─────────────────────────────────────────────────────────────────────────────────"
-                    printf "%-5s %-55s %5s %10d\n" "" "TOTAL EXPANDABILITY SCORE" "" "$expandability_score"
-                    echo ""
-                    echo "═══════════════════════════════════════════════════════════════"
+                    echo "─────────────────────────────────────────────────────────────────────────────────" >&2
+                    printf "%-5s %-55s %5s %10d\n" "" "Base Score (all systems)" "" "100" >&2
+                    printf "%-5s %-55s %5s %10d\n" "" "Interface Contributions" "" "$((expandability_score - 100))" >&2
+                    echo "─────────────────────────────────────────────────────────────────────────────────" >&2
+                    printf "%-5s %-55s %5s %10d\n" "" "TOTAL EXPANDABILITY SCORE" "" "$expandability_score" >&2
+                    echo "" >&2
+                    echo "═══════════════════════════════════════════════════════════════" >&2
                     
                     # Prompt for modification or acceptance
                     echo ""
@@ -511,7 +511,7 @@ collect_tec_info() {
                             echo "Interface Contributions: $((expandability_score - 100))"
                             echo "TOTAL EXPANDABILITY SCORE: ${expandability_score}"
                         } >> "$es_response_file"
-                        echo "Calculation confirmed. Expandability Score: ${expandability_score}"
+                        echo "Calculation confirmed. Expandability Score: ${expandability_score}" >&2
                     else
                         # User wants to modify a specific entry
                         case "$modify_choice" in
@@ -596,13 +596,13 @@ collect_tec_info() {
                                 echo "Updated: Integrated liquid cooling: ${liquid_cooling_count}" >> "$es_response_file"
                                 ;;
                             17)
-                                echo ""
-                                echo "Memory Interface Bonus (score: 100):"
-                                echo "  Either:"
-                                echo "    1) CPU and motherboard support for 4+ channels of system memory"
-                                echo "       AND at least 8GB of installed compatible system memory; OR"
-                                echo "    2) At least 8GB of system memory installed on a 256-bit or"
-                                echo "       greater memory interface"
+                                echo "" >&2
+                                echo "Memory Interface Bonus (score: 100):" >&2
+                                echo "  Either:" >&2
+                                echo "    1) CPU and motherboard support for 4+ channels of system memory" >&2
+                                echo "       AND at least 8GB of installed compatible system memory; OR" >&2
+                                echo "    2) At least 8GB of system memory installed on a 256-bit or" >&2
+                                echo "       greater memory interface" >&2
                                 read -p "Does this system qualify for the memory interface bonus? (y/n): " memory_bonus
                                 if [[ "$memory_bonus" =~ ^[Yy] ]]; then
                                     echo "Updated: Memory Interface Bonus: Yes" >> "$es_response_file"
@@ -638,7 +638,7 @@ collect_tec_info() {
                                 total_score=$((total_score + 100))
                             fi
                             expandability_score=$total_score
-                            echo "Updated Expandability Score: ${expandability_score}"
+                            echo "Updated Expandability Score: ${expandability_score}" >&2
                         fi
                     fi
                 done

@@ -11,6 +11,75 @@ SCP_USER="$1"
 SCP_IP="$2"
 SCRIPT_DIR="$(dirname "$(realpath "$0")")"
 
+# Check for battery and prompt user to note capacity, then shutdown for battery removal
+# This must happen before any setup work (git clone, settings changes, etc.)
+BATTERY_CAPACITY_FILE="/tmp/battery_capacity_wh.txt"
+battery_device=$(ls /sys/class/power_supply/ 2>/dev/null | grep -E '^BAT[0-9]' | head -1)
+if [ -n "$battery_device" ]; then
+    battery_path="/sys/class/power_supply/${battery_device}"
+    battery_capacity_suggestion=""
+    
+    # Try to read battery capacity from system files
+    energy_full_design_file="${battery_path}/energy_full_design"
+    energy_full_file="${battery_path}/energy_full"
+    charge_full_design_file="${battery_path}/charge_full_design"
+    voltage_min_design_file="${battery_path}/voltage_min_design"
+    
+    if [ -f "$energy_full_design_file" ]; then
+        energy_full_design=$(cat "$energy_full_design_file" 2>/dev/null || echo "0")
+        battery_capacity_suggestion=$(echo "scale=2; ${energy_full_design} / 1000000" | bc 2>/dev/null || echo "")
+    elif [ -f "$energy_full_file" ]; then
+        energy_full=$(cat "$energy_full_file" 2>/dev/null || echo "0")
+        battery_capacity_suggestion=$(echo "scale=2; ${energy_full} / 1000000" | bc 2>/dev/null || echo "")
+    elif [ -f "$charge_full_design_file" ] && [ -f "$voltage_min_design_file" ]; then
+        charge_full_design=$(cat "$charge_full_design_file" 2>/dev/null || echo "0")
+        voltage_min_design=$(cat "$voltage_min_design_file" 2>/dev/null || echo "0")
+        battery_capacity_suggestion=$(echo "scale=2; (${charge_full_design} * ${voltage_min_design}) / 1000000000000" | bc 2>/dev/null || echo "")
+    fi
+    
+    echo "=========================================="
+    echo "BATTERY DETECTED: ${battery_device}"
+    echo "=========================================="
+    if [ -n "$battery_capacity_suggestion" ] && [ "$battery_capacity_suggestion" != "0" ]; then
+        echo ""
+        echo "Detected battery capacity: ${battery_capacity_suggestion} Wh"
+        echo ""
+        echo "Please note this battery capacity value."
+        echo "The system will shutdown after you press Enter so you can remove the battery."
+        echo ""
+        read -p "Press Enter when ready to shutdown and remove the battery... "
+        battery_capacity_wh="$battery_capacity_suggestion"
+    else
+        echo ""
+        echo "Could not automatically detect battery capacity."
+        echo "Please check the battery label and note the capacity in Wh."
+        echo ""
+        read -p "Enter the battery capacity (in Wh): " battery_capacity_wh
+        echo ""
+        echo "The system will shutdown after you press Enter so you can remove the battery."
+        echo ""
+        read -p "Press Enter when ready to shutdown and remove the battery... "
+    fi
+    
+    # Save battery capacity to file for retrieval after restart
+    echo "$battery_capacity_wh" > "$BATTERY_CAPACITY_FILE" 2>/dev/null || echo "$battery_capacity_wh" > ~/battery_capacity_wh.txt
+    
+    echo ""
+    echo "Shutting down system in 5 seconds..."
+    sleep 5
+    sudo shutdown -h now
+    exit 0
+fi
+
+# If no battery detected, check for saved capacity from previous run
+if [ -f "$BATTERY_CAPACITY_FILE" ]; then
+    battery_capacity_wh=$(cat "$BATTERY_CAPACITY_FILE" 2>/dev/null | xargs)
+    rm -f "$BATTERY_CAPACITY_FILE"
+elif [ -f ~/battery_capacity_wh.txt ]; then
+    battery_capacity_wh=$(cat ~/battery_capacity_wh.txt 2>/dev/null | xargs)
+    rm -f ~/battery_capacity_wh.txt
+fi
+
 # Install necessary packages
 ./install.sh git inxi powertop edid-decode ethtool jq bc
 cd $HOME
@@ -40,8 +109,22 @@ collect_tec_info() {
     local output_file="t20-eut.txt"
     local json_file="t20-eut.json"
     local es_response_file=""  # Will be set if expandability calculation is performed
+    # battery_capacity_wh should be set from the global scope (from check at start of script)
     
     echo "Collecting system information for TEC score calculation..."
+    echo ""
+    
+    # Battery capacity should already be set from the check at the start of the script
+    # If not set and this is a notebook, prompt now (shouldn't happen normally)
+    local chassis_type=$(sudo dmidecode --type chassis | grep "Type:" | awk '{print $2}')
+    if [[ "$chassis_type" == "Notebook" || "$chassis_type" == "Laptop" ]]; then
+        if [ -z "$battery_capacity_wh" ]; then
+            echo "No battery detected and no saved capacity found."
+            echo "Please enter the battery capacity that was noted before removal."
+            read -p "Enter battery capacity in Wh: " battery_capacity_wh
+            echo ""
+        fi
+    fi
     
     # Initialize JSON object
     {
@@ -146,34 +229,13 @@ collect_tec_info() {
             local should_calculate_es="false"
             
             if [ "$is_notebook" = "true" ]; then
-                # Check battery capacity first - if too low, disqualify immediately
-                local battery_device=$(ls /sys/class/power_supply/ 2>/dev/null | grep -E '^BAT[0-9]' | head -1)
-                local battery_capacity_wh=""
-                local can_be_mobile_gaming="false"
-                
-                if [ -n "$battery_device" ]; then
-                    local energy_full_design_file="/sys/class/power_supply/${battery_device}/energy_full_design"
-                    local energy_full_file="/sys/class/power_supply/${battery_device}/energy_full"
-                    local charge_full_design_file="/sys/class/power_supply/${battery_device}/charge_full_design"
-                    local voltage_min_design_file="/sys/class/power_supply/${battery_device}/voltage_min_design"
-                    
-                    if [ -f "$energy_full_design_file" ]; then
-                        # energy_full_design is in µWh, convert to Wh (matches printed spec)
-                        local energy_full_design=$(cat "$energy_full_design_file" 2>/dev/null || echo "0")
-                        battery_capacity_wh=$(echo "scale=2; ${energy_full_design} / 1000000" | bc 2>/dev/null || echo "0")
-                    elif [ -f "$energy_full_file" ]; then
-                        # energy_full is in µWh, convert to Wh
-                        local energy_full=$(cat "$energy_full_file" 2>/dev/null || echo "0")
-                        battery_capacity_wh=$(echo "scale=2; ${energy_full} / 1000000" | bc 2>/dev/null || echo "0")
-                    elif [ -f "$charge_full_design_file" ] && [ -f "$voltage_min_design_file" ]; then
-                        # charge_full_design is in µAh, voltage_min_design is in µV
-                        # To get Wh: (µAh * µV) / 1,000,000,000,000
-                        # Note: This may differ from printed spec due to voltage used (min vs nominal)
-                        local charge_full_design=$(cat "$charge_full_design_file" 2>/dev/null || echo "0")
-                        local voltage_min_design=$(cat "$voltage_min_design_file" 2>/dev/null || echo "0")
-                        battery_capacity_wh=$(echo "scale=2; (${charge_full_design} * ${voltage_min_design}) / 1000000000000" | bc 2>/dev/null || echo "0")
-                    fi
+                # Battery capacity should already be set from the prompt at the start of the function
+                # If not set (shouldn't happen for notebooks), prompt now
+                if [ -z "$battery_capacity_wh" ]; then
+                    read -p "Enter battery capacity in Wh: " battery_capacity_wh
                 fi
+                
+                local can_be_mobile_gaming="false"
                 
                 # Minimum battery capacity threshold for mobile gaming systems (75Wh)
                 # Systems below this cannot qualify as mobile gaming systems
@@ -1125,7 +1187,15 @@ collect_tec_info() {
         # Battery Information (for notebooks)
         echo "  \"battery\": {"
         local battery_device=$(ls /sys/class/power_supply/ | grep -E '^BAT[0-9]' | head -1)
-        if [ -n "$battery_device" ]; then
+        
+        # Use prompted battery capacity if available (from earlier in function), otherwise try to read from files
+        local capacity_wh=""
+        if [ -n "$battery_capacity_wh" ] && [ "$battery_capacity_wh" != "" ]; then
+            # Use the prompted value
+            capacity_wh="$battery_capacity_wh"
+            echo "    \"capacity_full_wh\": \"${capacity_wh}\","
+            echo "    \"capacity_full_ah\": null,"
+        elif [ -n "$battery_device" ]; then
             local battery_path="/sys/class/power_supply/${battery_device}"
             local capacity_full=""
             local capacity_unit=""
@@ -1145,12 +1215,8 @@ collect_tec_info() {
             fi
             
             local voltage_min_design=$(cat "${battery_path}/voltage_min_design" 2>/dev/null || echo "")
-            local technology=$(cat "${battery_path}/technology" 2>/dev/null || echo "")
-            local manufacturer=$(cat "${battery_path}/manufacturer" 2>/dev/null || echo "")
-            local model_name=$(cat "${battery_path}/model_name" 2>/dev/null || echo "")
             
             # Calculate capacity in Wh if we have charge in Ah
-            local capacity_wh=""
             if [ -n "$capacity_full" ] && [ -n "$voltage_min_design" ] && [ "$capacity_unit" = "Ah" ]; then
                 # capacity_full is in µAh, voltage_min_design is in µV
                 # To get Wh: (µAh * µV) / 1,000,000,000,000
@@ -1165,21 +1231,32 @@ collect_tec_info() {
                 echo "    \"capacity_full_wh\": null,"
                 echo "    \"capacity_full_ah\": null,"
             fi
-            
-            # Calculate printed capacity (may be capped at 99Wh to avoid shipping restrictions)
-            # Batteries >= 100Wh have stricter shipping regulations, so manufacturers often print 99Wh
-            if [ -n "$capacity_wh" ] && [ "$capacity_wh" != "null" ]; then
-                local capacity_wh_printed=""
-                local capacity_wh_compare=$(echo "$capacity_wh >= 100" | bc 2>/dev/null || echo "0")
-                if [ "$capacity_wh_compare" = "1" ]; then
-                    capacity_wh_printed="99.00"
-                else
-                    capacity_wh_printed="$capacity_wh"
-                fi
-                echo "    \"capacity_full_wh_printed\": \"${capacity_wh_printed}\","
+        else
+            echo "    \"capacity_full_wh\": null,"
+            echo "    \"capacity_full_ah\": null,"
+        fi
+        
+        # Calculate printed capacity (may be capped at 99Wh to avoid shipping restrictions)
+        # Batteries >= 100Wh have stricter shipping regulations, so manufacturers often print 99Wh
+        if [ -n "$capacity_wh" ] && [ "$capacity_wh" != "null" ] && [ "$capacity_wh" != "" ]; then
+            local capacity_wh_printed=""
+            local capacity_wh_compare=$(echo "$capacity_wh >= 100" | bc 2>/dev/null || echo "0")
+            if [ "$capacity_wh_compare" = "1" ]; then
+                capacity_wh_printed="99.00"
             else
-                echo "    \"capacity_full_wh_printed\": null,"
+                capacity_wh_printed="$capacity_wh"
             fi
+            echo "    \"capacity_full_wh_printed\": \"${capacity_wh_printed}\","
+        else
+            echo "    \"capacity_full_wh_printed\": null,"
+        fi
+        
+        if [ -n "$battery_device" ]; then
+            local battery_path="/sys/class/power_supply/${battery_device}"
+            local voltage_min_design=$(cat "${battery_path}/voltage_min_design" 2>/dev/null || echo "")
+            local technology=$(cat "${battery_path}/technology" 2>/dev/null || echo "")
+            local manufacturer=$(cat "${battery_path}/manufacturer" 2>/dev/null || echo "")
+            local model_name=$(cat "${battery_path}/model_name" 2>/dev/null || echo "")
             
             echo "    \"voltage_min_design_v\": \"$(echo "scale=3; ${voltage_min_design} / 1000000" | bc 2>/dev/null || echo "")\","
             echo "    \"technology\": \"${technology}\","
@@ -1782,3 +1859,4 @@ until $APT_COMMAND update; do
 done
 $APT_COMMAND -y full-upgrade
 reboot
+

@@ -84,6 +84,10 @@ collect_tec_info() {
     echo "Collecting system information for TEC score calculation..."
     echo ""
     
+    # Prompt for motherboard model number
+    read -p "Enter motherboard model number (or press Enter to skip): " motherboard_model_number
+    echo ""
+    
     # Battery capacity should already be set from the check at the start of the script
     # If not set and this is a notebook, prompt now (shouldn't happen normally)
     local chassis_type=$(sudo dmidecode --type chassis | grep "Type:" | awk '{print $2}')
@@ -710,6 +714,11 @@ collect_tec_info() {
         echo "    \"baseboard_manufacturer\": \"${baseboard_manufacturer}\","
         echo "    \"baseboard_product\": \"${baseboard_product}\","
         echo "    \"baseboard_version\": \"${baseboard_version}\","
+        if [ -n "$motherboard_model_number" ]; then
+            echo "    \"motherboard_model_number\": \"${motherboard_model_number}\","
+        else
+            echo "    \"motherboard_model_number\": null,"
+        fi
         echo "    \"is_notebook\": ${is_notebook},"
         
         # Determine system classification
@@ -1308,23 +1317,74 @@ collect_tec_info() {
                 megapixels=$(echo "scale=2; (${width} * ${height}) / 1000000" | bc 2>/dev/null || echo "")
             fi
             
-            # Get physical dimensions from EDID if available
+            # Get physical dimensions from inxi.txt (more reliable than EDID)
+            local width_inches=""
+            local height_inches=""
+            local diagonal_inches=""
+            local area_square_inches=""
             local width_mm=""
             local height_mm=""
-            if command -v edid-decode &> /dev/null && [ -f "monitor-info.txt" ]; then
-                # Try to extract from monitor-info.txt for this display
-                local edid_block=$(grep -A 50 "^${display_name}" monitor-info.txt | grep -A 30 "EDID" | head -40)
-                if [ -n "$edid_block" ]; then
-                    local display_size=$(echo "$edid_block" | grep -i "Display size" | head -1)
-                    if [ -n "$display_size" ]; then
-                        # Format is usually "Display size: XXX cm x YYY cm" or "XXX mm x YYY mm"
-                        width_mm=$(echo "$display_size" | grep -oE '[0-9]+[[:space:]]*(cm|mm)' | head -1 | grep -oE '[0-9]+')
-                        height_mm=$(echo "$display_size" | grep -oE '[0-9]+[[:space:]]*(cm|mm)' | tail -1 | grep -oE '[0-9]+')
-                        # Convert cm to mm if needed
-                        if echo "$display_size" | grep -q "cm"; then
-                            width_mm=$(echo "${width_mm} * 10" | bc 2>/dev/null || echo "$width_mm")
-                            height_mm=$(echo "${height_mm} * 10" | bc 2>/dev/null || echo "$height_mm")
+            
+            # Check for inxi.txt in home directory (where script generates it)
+            local inxi_file="${HOME}/inxi.txt"
+            if [ -f "$inxi_file" ]; then
+                # Find the Monitor block that matches this display
+                # Monitor names in inxi might be slightly different (e.g., "eDP-1" vs "eDP1")
+                # Try to match by looking for the display name or similar pattern
+                local monitor_block=""
+                local display_pattern=$(echo "$display_name" | sed 's/-//g' | tr '[:upper:]' '[:lower:]')
+                
+                # Look for Monitor blocks in inxi.txt
+                local in_monitor_section=false
+                while IFS= read -r line; do
+                    if echo "$line" | grep -qiE "^[[:space:]]*Monitor-[0-9]+:"; then
+                        # Check if this monitor matches our display
+                        if echo "$line" | grep -qi "$display_name" || echo "$line" | grep -qi "$display_pattern"; then
+                            in_monitor_section=true
+                            monitor_block="$line"$'\n'
+                        else
+                            in_monitor_section=false
+                            monitor_block=""
                         fi
+                    elif [ "$in_monitor_section" = true ]; then
+                        # Continue collecting lines until we hit the next section or empty line
+                        if echo "$line" | grep -qE '^[[:space:]]*[A-Z]'; then
+                            # Next section started
+                            break
+                        elif [ -n "$line" ]; then
+                            monitor_block="${monitor_block}${line}"$'\n'
+                        fi
+                    fi
+                done < "$inxi_file"
+                
+                if [ -n "$monitor_block" ]; then
+                    # Extract size: format is "size: 381x214mm (15.0x8.4")"
+                    local size_line=$(echo "$monitor_block" | grep -i "size:")
+                    if [ -n "$size_line" ]; then
+                        # Extract width and height in inches from the parentheses
+                        local size_inches=$(echo "$size_line" | grep -oE '\([0-9]+\.[0-9]+x[0-9]+\.[0-9]+"' | sed 's/[()"]//g')
+                        if [ -n "$size_inches" ]; then
+                            width_inches=$(echo "$size_inches" | cut -dx -f1)
+                            height_inches=$(echo "$size_inches" | cut -dx -f2)
+                        fi
+                        
+                        # Extract width and height in mm
+                        local size_mm=$(echo "$size_line" | grep -oE '[0-9]+x[0-9]+mm' | sed 's/mm//')
+                        if [ -n "$size_mm" ]; then
+                            width_mm=$(echo "$size_mm" | cut -dx -f1)
+                            height_mm=$(echo "$size_mm" | cut -dx -f2)
+                        fi
+                    fi
+                    
+                    # Extract diagonal: format is "diag: 437mm (17.2")"
+                    local diag_line=$(echo "$monitor_block" | grep -i "diag:")
+                    if [ -n "$diag_line" ]; then
+                        diagonal_inches=$(echo "$diag_line" | grep -oE '\([0-9]+\.[0-9]+"' | sed 's/[()"]//g')
+                    fi
+                    
+                    # Calculate area in square inches if we have width and height
+                    if [ -n "$width_inches" ] && [ -n "$height_inches" ]; then
+                        area_square_inches=$(echo "scale=2; ${width_inches} * ${height_inches}" | bc 2>/dev/null || echo "")
                     fi
                 fi
             fi
@@ -1332,14 +1392,18 @@ collect_tec_info() {
             local color_gamut="${display_gamuts[$display_name]:-null}"
             
             echo "    {"
-            echo "      \"name\": \"${display_name}\","
-            echo "      \"resolution\": \"${resolution}\","
-            echo "      \"width_px\": ${width:-null},"
-            echo "      \"height_px\": ${height:-null},"
-            echo "      \"megapixels\": ${megapixels:-null},"
-            echo "      \"width_mm\": ${width_mm:-null},"
-            echo "      \"height_mm\": ${height_mm:-null},"
-            echo "      \"color_gamut\": \"${color_gamut}\""
+            echo -n "      \"name\": \"${display_name}\""
+            echo "," && echo "      \"resolution\": \"${resolution}\""
+            [ -n "$width" ] && echo "," && echo -n "      \"width_px\": ${width}"
+            [ -n "$height" ] && echo "," && echo -n "      \"height_px\": ${height}"
+            [ -n "$megapixels" ] && echo "," && echo -n "      \"megapixels\": ${megapixels}"
+            [ -n "$width_mm" ] && echo "," && echo -n "      \"width_mm\": ${width_mm}"
+            [ -n "$height_mm" ] && echo "," && echo -n "      \"height_mm\": ${height_mm}"
+            [ -n "$width_inches" ] && echo "," && echo -n "      \"width_inches\": ${width_inches}"
+            [ -n "$height_inches" ] && echo "," && echo -n "      \"height_inches\": ${height_inches}"
+            [ -n "$diagonal_inches" ] && echo "," && echo -n "      \"diagonal_inches\": ${diagonal_inches}"
+            [ -n "$area_square_inches" ] && echo "," && echo -n "      \"area_square_inches\": ${area_square_inches}"
+            echo "," && echo "      \"color_gamut\": \"${color_gamut}\""
             echo -n "    }"
         done
         echo ""
@@ -1593,6 +1657,7 @@ validate_tec_info() {
             "  Baseboard Manufacturer: " + (.system.baseboard_manufacturer // "null"),
             "  Baseboard Product: " + (.system.baseboard_product // "null"),
             "  Baseboard Version: " + (.system.baseboard_version // "null"),
+            "  Motherboard Model Number: " + (.system.motherboard_model_number // "null"),
             "",
             "CPU Information:",
             "  Model: " + (.cpu.model // "null"),
@@ -1676,26 +1741,35 @@ validate_tec_info() {
                     jq '.' "$json_file" > "$output_file" 2>/dev/null || cat "$json_file" > "$output_file"
                     ;;
                 4)
+                    read -p "Enter new Motherboard Model Number (or 'null' to clear): " new_value >&2
+                    if [ -z "$new_value" ] || [ "$new_value" = "null" ]; then
+                        jq ".system.motherboard_model_number = null" "$json_file" > "${json_file}.tmp" && mv "${json_file}.tmp" "$json_file"
+                    else
+                        jq ".system.motherboard_model_number = \"$new_value\"" "$json_file" > "${json_file}.tmp" && mv "${json_file}.tmp" "$json_file"
+                    fi
+                    jq '.' "$json_file" > "$output_file" 2>/dev/null || cat "$json_file" > "$output_file"
+                    ;;
+                5)
                     read -p "Enter new CPU TDP (W): " new_value >&2
                     jq ".cpu.tdp_w = ($new_value // null)" "$json_file" > "${json_file}.tmp" && mv "${json_file}.tmp" "$json_file"
                     jq '.' "$json_file" > "$output_file" 2>/dev/null || cat "$json_file" > "$output_file"
                     ;;
-                5)
+                6)
                     read -p "Enter new GPU Model: " new_value >&2
                     jq ".gpu.model = \"$new_value\"" "$json_file" > "${json_file}.tmp" && mv "${json_file}.tmp" "$json_file"
                     jq '.' "$json_file" > "$output_file" 2>/dev/null || cat "$json_file" > "$output_file"
                     ;;
-                6)
+                7)
                     read -p "Enter new GPU Memory Bandwidth (GB/s): " new_value >&2
                     jq ".gpu.memory_bandwidth_gbps = ($new_value // null)" "$json_file" > "${json_file}.tmp" && mv "${json_file}.tmp" "$json_file"
                     jq '.' "$json_file" > "$output_file" 2>/dev/null || cat "$json_file" > "$output_file"
                     ;;
-                7)
+                8)
                     read -p "Enter new Memory Total Capacity (GB): " new_value >&2
                     jq ".memory.total_capacity_gb = ($new_value // null)" "$json_file" > "${json_file}.tmp" && mv "${json_file}.tmp" "$json_file"
                     jq '.' "$json_file" > "$output_file" 2>/dev/null || cat "$json_file" > "$output_file"
                     ;;
-                8)
+                9)
                     read -p "Enter new Memory ECC (true/false): " new_value >&2
                     if [[ "$new_value" =~ ^[Tt] ]]; then
                         jq ".memory.ecc = \"true\"" "$json_file" > "${json_file}.tmp" && mv "${json_file}.tmp" "$json_file"
@@ -1704,12 +1778,12 @@ validate_tec_info() {
                     fi
                     jq '.' "$json_file" > "$output_file" 2>/dev/null || cat "$json_file" > "$output_file"
                     ;;
-                9)
+                10)
                     read -p "Enter new Battery Capacity (Wh): " new_value >&2
                     jq ".battery.capacity_full_wh = ($new_value // null)" "$json_file" > "${json_file}.tmp" && mv "${json_file}.tmp" "$json_file"
                     jq '.' "$json_file" > "$output_file" 2>/dev/null || cat "$json_file" > "$output_file"
                     ;;
-                10)
+                11)
                     echo "Available displays:" >&2
                     local idx=0
                     jq -r '.displays[] | "  \(.name)"' "$json_file" >&2
@@ -1718,32 +1792,33 @@ validate_tec_info() {
                     jq "(.displays[] | select(.name == \"$display_name\") | .color_gamut) = \"$new_value\"" "$json_file" > "${json_file}.tmp" && mv "${json_file}.tmp" "$json_file"
                     jq '.' "$json_file" > "$output_file" 2>/dev/null || cat "$json_file" > "$output_file"
                     ;;
-                11)
+                12)
                     echo "Note: Storage disk information editing not yet implemented. Please edit JSON file manually if needed." >&2
                     ;;
-                12)
+                13)
                     echo "Available network adapters:" >&2
                     jq -r '.network_adapters[] | "  \(.name)"' "$json_file" >&2
                     read -p "Enter adapter name to edit: " adapter_name >&2
                     read -p "Enter new speed: " new_value >&2
-                    jq "(.network_adapters[] | select(.name == \"$adapter_name\") | .speed) = \"$new_value\"" "$json_file" > "${json_file}.tmp" && mv "${json_file}.tmp" "$json_file"
+                    jq "(.network_adapters[] | select(.name == \"$adapter_name\") | .max_speed) = \"$new_value\"" "$json_file" > "${json_file}.tmp" && mv "${json_file}.tmp" "$json_file"
                     jq '.' "$json_file" > "$output_file" 2>/dev/null || cat "$json_file" > "$output_file"
                     ;;
-                13)
+                14)
                     read -p "Enter new Expandability Score: " new_value >&2
                     jq ".expandability_score = ($new_value // null)" "$json_file" > "${json_file}.tmp" && mv "${json_file}.tmp" "$json_file"
                     jq '.' "$json_file" > "$output_file" 2>/dev/null || cat "$json_file" > "$output_file"
                     ;;
-                14)
+                15)
                     read -p "Enter Mobile Gaming System (true/false): " new_value >&2
                     if [[ "$new_value" =~ ^[Tt] ]]; then
-                        jq ".mobile_gaming_system = \"true\"" "$json_file" > "${json_file}.tmp" && mv "${json_file}.tmp" "$json_file"
+                        jq ".mobile_gaming_system = true" "$json_file" > "${json_file}.tmp" && mv "${json_file}.tmp" "$json_file"
                     else
-                        jq ".mobile_gaming_system = \"false\"" "$json_file" > "${json_file}.tmp" && mv "${json_file}.tmp" "$json_file"
+                        jq ".mobile_gaming_system = false" "$json_file" > "${json_file}.tmp" && mv "${json_file}.tmp" "$json_file"
                     fi
                     jq '.' "$json_file" > "$output_file" 2>/dev/null || cat "$json_file" > "$output_file"
                     ;;
-                15)
+                16)
+                    validated="true"
                     ;;
                 *)
                     echo "Invalid option" >&2

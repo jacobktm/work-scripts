@@ -665,30 +665,15 @@ collect_tec_info() {
             fi
         fi
         
-        # Output expandability score and mobile gaming system flag
-        # Re-check if notebook with expandability score should be mobile gaming system
-        if [ -n "$expandability_score" ] && [ "$is_notebook" = "true" ]; then
-            mobile_gaming_system="true"
-        fi
+        # Get baseboard information for system object
+        local baseboard_manufacturer=$(sudo dmidecode --type 2 2>/dev/null | grep "Manufacturer:" | cut -d: -f2 | xargs)
+        local baseboard_product=$(sudo dmidecode --type 2 2>/dev/null | grep "Product Name:" | cut -d: -f2 | xargs)
+        echo "    \"baseboard_manufacturer\": \"${baseboard_manufacturer}\","
+        echo "    \"baseboard_product\": \"${baseboard_product}\","
+        echo "    \"baseboard_version\": \"${baseboard_version}\","
+        echo "    \"is_notebook\": ${is_notebook},"
         
-        if [ -n "$expandability_score" ]; then
-            echo -n "    \"expandability_score\": ${expandability_score}"
-        else
-            echo -n "    \"expandability_score\": null"
-        fi
-        echo ","
-        # Ensure mobile_gaming_system is output as boolean
-        if [ "$mobile_gaming_system" = "true" ]; then
-            echo "    \"mobile_gaming_system\": true"
-        else
-            echo "    \"mobile_gaming_system\": false"
-        fi
-        echo "  },"
-        
-        # Chassis/Form Factor
-        echo "  \"chassis\": {"
-        local chassis_manufacturer=$(sudo dmidecode --type chassis | grep "Manufacturer:" | cut -d: -f2 | xargs)
-        local chassis_version=$(sudo dmidecode --type chassis | grep "Version:" | cut -d: -f2 | xargs)
+        # Determine system classification
         local system_classification="Desktop"
         if [[ "$chassis_type" == "Notebook" || "$chassis_type" == "Laptop" ]]; then
             system_classification="Notebook"
@@ -705,11 +690,36 @@ collect_tec_info() {
                 system_classification="Workstation"
             fi
         fi
+        echo "    \"classification\": \"${system_classification}\""
+        echo "  },"
+        
+        # Output expandability score and mobile gaming system flag at root level
+        # Re-check if notebook with expandability score should be mobile gaming system
+        if [ -n "$expandability_score" ] && [ "$is_notebook" = "true" ]; then
+            mobile_gaming_system="true"
+        fi
+        
+        if [ -n "$expandability_score" ]; then
+            echo -n "  \"expandability_score\": ${expandability_score}"
+        else
+            echo -n "  \"expandability_score\": null"
+        fi
+        echo ","
+        # Ensure mobile_gaming_system is output as boolean
+        if [ "$mobile_gaming_system" = "true" ]; then
+            echo "  \"mobile_gaming_system\": true"
+        else
+            echo "  \"mobile_gaming_system\": false"
+        fi
+        echo ","
+        
+        # Chassis/Form Factor
+        echo "  \"chassis\": {"
+        local chassis_manufacturer=$(sudo dmidecode --type chassis | grep "Manufacturer:" | cut -d: -f2 | xargs)
+        local chassis_version=$(sudo dmidecode --type chassis | grep "Version:" | cut -d: -f2 | xargs)
         echo "    \"type\": \"${chassis_type}\","
         echo "    \"manufacturer\": \"${chassis_manufacturer}\","
-        echo "    \"version\": \"${chassis_version}\","
-        echo "    \"is_notebook\": ${is_notebook},"
-        echo "    \"classification\": \"${system_classification}\""
+        echo "    \"version\": \"${chassis_version}\""
         echo "  },"
         
         # CPU Information

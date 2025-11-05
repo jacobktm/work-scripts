@@ -784,6 +784,8 @@ collect_tec_info() {
                     local type=$(echo "$current_dimm" | grep "^[[:space:]]*Type:" | head -1 | cut -d: -f2 | xargs)
                     local form_factor=$(echo "$current_dimm" | grep "Form Factor:" | cut -d: -f2 | xargs)
                     local locator=$(echo "$current_dimm" | grep "Locator:" | head -1 | cut -d: -f2 | xargs)
+                    local total_width=$(echo "$current_dimm" | grep "Total Width:" | cut -d: -f2 | xargs)
+                    local data_width=$(echo "$current_dimm" | grep "Data Width:" | cut -d: -f2 | xargs)
                     
                     echo "      {"
                     echo -n "        \"size\": \"${size:-}\""
@@ -794,6 +796,8 @@ collect_tec_info() {
                     [ -n "$manufacturer" ] && echo "," && echo -n "        \"manufacturer\": \"${manufacturer}\""
                     [ -n "$part_number" ] && echo "," && echo -n "        \"part_number\": \"${part_number}\""
                     [ -n "$serial_number" ] && echo "," && echo -n "        \"serial_number\": \"${serial_number}\""
+                    [ -n "$total_width" ] && echo "," && echo -n "        \"total_width\": \"${total_width}\""
+                    [ -n "$data_width" ] && echo "," && echo -n "        \"data_width\": \"${data_width}\""
                     echo ""
                     echo -n "      }"
                 fi
@@ -817,6 +821,8 @@ collect_tec_info() {
             local type=$(echo "$current_dimm" | grep "^[[:space:]]*Type:" | head -1 | cut -d: -f2 | xargs)
             local form_factor=$(echo "$current_dimm" | grep "Form Factor:" | cut -d: -f2 | xargs)
             local locator=$(echo "$current_dimm" | grep "Locator:" | head -1 | cut -d: -f2 | xargs)
+            local total_width=$(echo "$current_dimm" | grep "Total Width:" | cut -d: -f2 | xargs)
+            local data_width=$(echo "$current_dimm" | grep "Data Width:" | cut -d: -f2 | xargs)
             
             echo "      {"
             echo -n "        \"size\": \"${size:-}\""
@@ -827,13 +833,49 @@ collect_tec_info() {
             [ -n "$manufacturer" ] && echo "," && echo -n "        \"manufacturer\": \"${manufacturer}\""
             [ -n "$part_number" ] && echo "," && echo -n "        \"part_number\": \"${part_number}\""
             [ -n "$serial_number" ] && echo "," && echo -n "        \"serial_number\": \"${serial_number}\""
+            [ -n "$total_width" ] && echo "," && echo -n "        \"total_width\": \"${total_width}\""
+            [ -n "$data_width" ] && echo "," && echo -n "        \"data_width\": \"${data_width}\""
             echo ""
             echo -n "      }"
         fi
         echo ""
         echo "    ],"
         local total_memory=$(free -h | grep "Mem:" | awk '{print $2}')
-        echo "    \"total_memory\": \"${total_memory}\""
+        echo "    \"total_memory\": \"${total_memory}\","
+        
+        # Calculate total system memory bus width (sum of all DIMMs' total width)
+        local total_bus_width=0
+        local total_bus_width_bits=""
+        local current_dimm_bus=""
+        while IFS= read -r line; do
+            if [[ "$line" =~ ^Handle ]]; then
+                if [ -n "$current_dimm_bus" ] && echo "$current_dimm_bus" | grep -q "Total Width:" && ! echo "$current_dimm_bus" | grep -q "No Module Installed"; then
+                    local width_str=$(echo "$current_dimm_bus" | grep "Total Width:" | cut -d: -f2 | xargs)
+                    # Extract numeric value (e.g., "64 bits" -> 64)
+                    local width_num=$(echo "$width_str" | grep -oE '[0-9]+' | head -1)
+                    if [ -n "$width_num" ] && [[ "$width_num" =~ ^[0-9]+$ ]]; then
+                        total_bus_width=$((total_bus_width + width_num))
+                    fi
+                fi
+                current_dimm_bus="$line"$'\n'
+            else
+                current_dimm_bus+="$line"$'\n'
+            fi
+        done <<< "$dimm_data"
+        # Process last DIMM
+        if [ -n "$current_dimm_bus" ] && echo "$current_dimm_bus" | grep -q "Total Width:" && ! echo "$current_dimm_bus" | grep -q "No Module Installed"; then
+            local width_str=$(echo "$current_dimm_bus" | grep "Total Width:" | cut -d: -f2 | xargs)
+            local width_num=$(echo "$width_str" | grep -oE '[0-9]+' | head -1)
+            if [ -n "$width_num" ] && [[ "$width_num" =~ ^[0-9]+$ ]]; then
+                total_bus_width=$((total_bus_width + width_num))
+            fi
+        fi
+        
+        if [ $total_bus_width -gt 0 ]; then
+            total_bus_width_bits="${total_bus_width} bits"
+        fi
+        
+        echo "    \"total_memory_bus_width\": \"${total_bus_width_bits:-null}\""
         echo "  },"
         
         # GPU Information
@@ -1051,53 +1093,78 @@ collect_tec_info() {
         # Display Information
         echo "  \"displays\": ["
         local first_display=true
+        local display_count=0
+        local display_names=()
+        
+        # First pass: collect display names
         while IFS= read -r line; do
             if [[ "$line" =~ " connected " ]]; then
-                if [ "$first_display" = false ]; then
-                    echo ","
-                fi
-                first_display=false
                 local display_name=$(echo "$line" | awk '{print $1}')
-                local resolution=$(echo "$line" | grep -oE '[0-9]+x[0-9]+' | head -1)
-                local width=$(echo "$resolution" | cut -dx -f1)
-                local height=$(echo "$resolution" | cut -dx -f2)
-                local megapixels=""
-                if [ -n "$width" ] && [ -n "$height" ]; then
-                    megapixels=$(echo "scale=2; (${width} * ${height}) / 1000000" | bc 2>/dev/null || echo "")
-                fi
-                
-                # Get physical dimensions from EDID if available
-                local width_mm=""
-                local height_mm=""
-                if command -v edid-decode &> /dev/null && [ -f "monitor-info.txt" ]; then
-                    # Try to extract from monitor-info.txt for this display
-                    local edid_block=$(grep -A 50 "^${display_name}" monitor-info.txt | grep -A 30 "EDID" | head -40)
-                    if [ -n "$edid_block" ]; then
-                        local display_size=$(echo "$edid_block" | grep -i "Display size" | head -1)
-                        if [ -n "$display_size" ]; then
-                            # Format is usually "Display size: XXX cm x YYY cm" or "XXX mm x YYY mm"
-                            width_mm=$(echo "$display_size" | grep -oE '[0-9]+[[:space:]]*(cm|mm)' | head -1 | grep -oE '[0-9]+')
-                            height_mm=$(echo "$display_size" | grep -oE '[0-9]+[[:space:]]*(cm|mm)' | tail -1 | grep -oE '[0-9]+')
-                            # Convert cm to mm if needed
-                            if echo "$display_size" | grep -q "cm"; then
-                                width_mm=$(echo "${width_mm} * 10" | bc 2>/dev/null || echo "$width_mm")
-                                height_mm=$(echo "${height_mm} * 10" | bc 2>/dev/null || echo "$height_mm")
-                            fi
+                display_names+=("$display_name")
+                display_count=$((display_count + 1))
+            fi
+        done <<< "$(xrandr)"
+        
+        # Prompt for color gamut information for each display
+        echo "Collecting display color gamut information..." >&2
+        declare -A display_gamuts
+        for display_name in "${display_names[@]}"; do
+            read -p "Enter color gamut for display '${display_name}' (e.g., '99% sRGB', '100% DCI-P3', '72% NTSC'): " color_gamut
+            display_gamuts["$display_name"]="${color_gamut:-null}"
+        done
+        echo "" >&2
+        
+        # Second pass: process displays and include color gamut
+        for display_name in "${display_names[@]}"; do
+            if [ "$first_display" = false ]; then
+                echo ","
+            fi
+            first_display=false
+            
+            # Get display info from xrandr
+            local xrandr_line=$(xrandr | grep "^${display_name}.* connected")
+            local resolution=$(echo "$xrandr_line" | grep -oE '[0-9]+x[0-9]+' | head -1)
+            local width=$(echo "$resolution" | cut -dx -f1)
+            local height=$(echo "$resolution" | cut -dx -f2)
+            local megapixels=""
+            if [ -n "$width" ] && [ -n "$height" ]; then
+                megapixels=$(echo "scale=2; (${width} * ${height}) / 1000000" | bc 2>/dev/null || echo "")
+            fi
+            
+            # Get physical dimensions from EDID if available
+            local width_mm=""
+            local height_mm=""
+            if command -v edid-decode &> /dev/null && [ -f "monitor-info.txt" ]; then
+                # Try to extract from monitor-info.txt for this display
+                local edid_block=$(grep -A 50 "^${display_name}" monitor-info.txt | grep -A 30 "EDID" | head -40)
+                if [ -n "$edid_block" ]; then
+                    local display_size=$(echo "$edid_block" | grep -i "Display size" | head -1)
+                    if [ -n "$display_size" ]; then
+                        # Format is usually "Display size: XXX cm x YYY cm" or "XXX mm x YYY mm"
+                        width_mm=$(echo "$display_size" | grep -oE '[0-9]+[[:space:]]*(cm|mm)' | head -1 | grep -oE '[0-9]+')
+                        height_mm=$(echo "$display_size" | grep -oE '[0-9]+[[:space:]]*(cm|mm)' | tail -1 | grep -oE '[0-9]+')
+                        # Convert cm to mm if needed
+                        if echo "$display_size" | grep -q "cm"; then
+                            width_mm=$(echo "${width_mm} * 10" | bc 2>/dev/null || echo "$width_mm")
+                            height_mm=$(echo "${height_mm} * 10" | bc 2>/dev/null || echo "$height_mm")
                         fi
                     fi
                 fi
-                
-                echo "    {"
-                echo "      \"name\": \"${display_name}\","
-                echo "      \"resolution\": \"${resolution}\","
-                echo "      \"width_px\": ${width:-null},"
-                echo "      \"height_px\": ${height:-null},"
-                echo "      \"megapixels\": ${megapixels:-null},"
-                echo "      \"width_mm\": ${width_mm:-null},"
-                echo "      \"height_mm\": ${height_mm:-null}"
-                echo -n "    }"
             fi
-        done <<< "$(xrandr)"
+            
+            local color_gamut="${display_gamuts[$display_name]:-null}"
+            
+            echo "    {"
+            echo "      \"name\": \"${display_name}\","
+            echo "      \"resolution\": \"${resolution}\","
+            echo "      \"width_px\": ${width:-null},"
+            echo "      \"height_px\": ${height:-null},"
+            echo "      \"megapixels\": ${megapixels:-null},"
+            echo "      \"width_mm\": ${width_mm:-null},"
+            echo "      \"height_mm\": ${height_mm:-null},"
+            echo "      \"color_gamut\": \"${color_gamut}\""
+            echo -n "    }"
+        done
         echo ""
         echo "  ],"
         
@@ -1286,10 +1353,228 @@ collect_tec_info() {
     # Also create a text version for backwards compatibility
     jq '.' "$json_file" > "$output_file" 2>/dev/null || cat "$json_file" > "$output_file"
     
-    echo "System information collected and saved to $json_file and $output_file"
+    echo "System information collected and saved to $json_file and $output_file" >&2
     
-    # SCP to server (combine into one command to prompt for password only once)
-    echo "Attempting to copy files to ${scp_user}@${scp_ip}..."
+    # Store file paths in global variables for use outside function
+    TEC_JSON_FILE="$json_file"
+    TEC_OUTPUT_FILE="$output_file"
+    TEC_ES_RESPONSE_FILE="$es_response_file"
+}
+
+# Function to validate and review collected TEC information
+validate_tec_info() {
+    local json_file="$1"
+    local output_file="$2"
+    
+    if [ ! -f "$json_file" ] || ! command -v jq &> /dev/null; then
+        echo "Warning: Cannot validate - JSON file or jq not available" >&2
+        return 0
+    fi
+    
+    local validated="false"
+    while [ "$validated" != "true" ]; do
+        echo "" >&2
+        echo "═══════════════════════════════════════════════════════════════" >&2
+        echo "TEC INFORMATION REVIEW - All Collected Data" >&2
+        echo "═══════════════════════════════════════════════════════════════" >&2
+        echo "" >&2
+        
+        # Display all information in readable format
+        jq -r '
+            "System Information:",
+            "  Product Name: " + (.system.product_name // "null"),
+            "  Manufacturer: " + (.system.manufacturer // "null"),
+            "  Version: " + (.system.version // "null"),
+            "  Serial Number: " + (.system.serial_number // "null"),
+            "  Chassis Type: " + (.system.chassis_type // "null"),
+            "  Baseboard Manufacturer: " + (.system.baseboard_manufacturer // "null"),
+            "  Baseboard Product: " + (.system.baseboard_product // "null"),
+            "  Baseboard Version: " + (.system.baseboard_version // "null"),
+            "",
+            "CPU Information:",
+            "  Model: " + (.cpu.model // "null"),
+            "  Cores: " + (.cpu.cores // "null" | tostring),
+            "  Threads: " + (.cpu.threads // "null" | tostring),
+            "  TDP (W): " + (.cpu.tdp_w // "null" | tostring),
+            "",
+            "GPU Information:",
+            "  Model: " + (.gpu.model // "null"),
+            "  Memory Bandwidth (GB/s): " + (.gpu.memory_bandwidth_gbps // "null" | tostring),
+            "",
+            "Memory Information:",
+            "  Total Capacity (GB): " + (.memory.total_capacity_gb // "null" | tostring),
+            "  Total Memory Bus Width: " + (.memory.total_memory_bus_width // "null"),
+            "  ECC: " + (.memory.ecc // "null"),
+            "",
+            "Battery Information:",
+            "  Capacity (Wh): " + (.battery.capacity_full_wh // "null" | tostring),
+            "  Technology: " + (.battery.technology // "null"),
+            "",
+            "Displays:",
+            (.displays[] | "  " + .name + ": " + .resolution + " (" + (.color_gamut // "null") + ")"),
+            "",
+            "Storage:",
+            "  Disk Count: " + (.storage.disk_count // "null" | tostring),
+            (.storage.disks[] | "  " + .name + ": " + .type + " " + (.size_gb | tostring) + "GB"),
+            "",
+            "Network Adapters:",
+            (.network_adapters[] | "  " + .name + ": " + (.speed // "null") + " (" + (.eee_status // "null") + ")"),
+            "",
+            "Operating System:",
+            "  Name: " + (.operating_system.name // "null"),
+            "  Version: " + (.operating_system.version // "null"),
+            "",
+            "Sleep States:",
+            "  S0ix Supported: " + (.sleep_states.s0ix_supported // "null" | tostring),
+            "  S3 Supported: " + (.sleep_states.s3_supported // "null"),
+            "",
+            "Expandability Score: " + (.expandability_score // "null" | tostring),
+            "Mobile Gaming System: " + (.mobile_gaming_system // "null" | tostring)
+        ' "$json_file" >&2
+        
+        echo "" >&2
+        echo "═══════════════════════════════════════════════════════════════" >&2
+        read -p "Review the information above. Would you like to edit any fields? (y/n): " edit_choice >&2
+        
+        if [[ "$edit_choice" =~ ^[Yy] ]]; then
+            echo "" >&2
+            echo "Available fields to edit:" >&2
+            echo "  1. System Product Name" >&2
+            echo "  2. System Manufacturer" >&2
+            echo "  3. Baseboard Version" >&2
+            echo "  4. CPU TDP (W)" >&2
+            echo "  5. GPU Model" >&2
+            echo "  6. GPU Memory Bandwidth (GB/s)" >&2
+            echo "  7. Memory Total Capacity (GB)" >&2
+            echo "  8. Memory ECC" >&2
+            echo "  9. Battery Capacity (Wh)" >&2
+            echo "  10. Display Color Gamut" >&2
+            echo "  11. Storage Disk Information" >&2
+            echo "  12. Network Adapter Speed" >&2
+            echo "  13. Expandability Score" >&2
+            echo "  14. Mobile Gaming System" >&2
+            echo "  15. Skip editing" >&2
+            read -p "Enter field number to edit (1-15): " field_num >&2
+            
+            case "$field_num" in
+                1)
+                    read -p "Enter new System Product Name: " new_value >&2
+                    jq ".system.product_name = \"$new_value\"" "$json_file" > "${json_file}.tmp" && mv "${json_file}.tmp" "$json_file"
+                    jq '.' "$json_file" > "$output_file" 2>/dev/null || cat "$json_file" > "$output_file"
+                    ;;
+                2)
+                    read -p "Enter new System Manufacturer: " new_value >&2
+                    jq ".system.manufacturer = \"$new_value\"" "$json_file" > "${json_file}.tmp" && mv "${json_file}.tmp" "$json_file"
+                    jq '.' "$json_file" > "$output_file" 2>/dev/null || cat "$json_file" > "$output_file"
+                    ;;
+                3)
+                    read -p "Enter new Baseboard Version: " new_value >&2
+                    jq ".system.baseboard_version = \"$new_value\"" "$json_file" > "${json_file}.tmp" && mv "${json_file}.tmp" "$json_file"
+                    jq '.' "$json_file" > "$output_file" 2>/dev/null || cat "$json_file" > "$output_file"
+                    ;;
+                4)
+                    read -p "Enter new CPU TDP (W): " new_value >&2
+                    jq ".cpu.tdp_w = ($new_value // null)" "$json_file" > "${json_file}.tmp" && mv "${json_file}.tmp" "$json_file"
+                    jq '.' "$json_file" > "$output_file" 2>/dev/null || cat "$json_file" > "$output_file"
+                    ;;
+                5)
+                    read -p "Enter new GPU Model: " new_value >&2
+                    jq ".gpu.model = \"$new_value\"" "$json_file" > "${json_file}.tmp" && mv "${json_file}.tmp" "$json_file"
+                    jq '.' "$json_file" > "$output_file" 2>/dev/null || cat "$json_file" > "$output_file"
+                    ;;
+                6)
+                    read -p "Enter new GPU Memory Bandwidth (GB/s): " new_value >&2
+                    jq ".gpu.memory_bandwidth_gbps = ($new_value // null)" "$json_file" > "${json_file}.tmp" && mv "${json_file}.tmp" "$json_file"
+                    jq '.' "$json_file" > "$output_file" 2>/dev/null || cat "$json_file" > "$output_file"
+                    ;;
+                7)
+                    read -p "Enter new Memory Total Capacity (GB): " new_value >&2
+                    jq ".memory.total_capacity_gb = ($new_value // null)" "$json_file" > "${json_file}.tmp" && mv "${json_file}.tmp" "$json_file"
+                    jq '.' "$json_file" > "$output_file" 2>/dev/null || cat "$json_file" > "$output_file"
+                    ;;
+                8)
+                    read -p "Enter new Memory ECC (true/false): " new_value >&2
+                    if [[ "$new_value" =~ ^[Tt] ]]; then
+                        jq ".memory.ecc = \"true\"" "$json_file" > "${json_file}.tmp" && mv "${json_file}.tmp" "$json_file"
+                    else
+                        jq ".memory.ecc = \"false\"" "$json_file" > "${json_file}.tmp" && mv "${json_file}.tmp" "$json_file"
+                    fi
+                    jq '.' "$json_file" > "$output_file" 2>/dev/null || cat "$json_file" > "$output_file"
+                    ;;
+                9)
+                    read -p "Enter new Battery Capacity (Wh): " new_value >&2
+                    jq ".battery.capacity_full_wh = ($new_value // null)" "$json_file" > "${json_file}.tmp" && mv "${json_file}.tmp" "$json_file"
+                    jq '.' "$json_file" > "$output_file" 2>/dev/null || cat "$json_file" > "$output_file"
+                    ;;
+                10)
+                    echo "Available displays:" >&2
+                    local idx=0
+                    jq -r '.displays[] | "  \(.name)"' "$json_file" >&2
+                    read -p "Enter display name to edit: " display_name >&2
+                    read -p "Enter new color gamut (e.g., '99% sRGB'): " new_value >&2
+                    jq "(.displays[] | select(.name == \"$display_name\") | .color_gamut) = \"$new_value\"" "$json_file" > "${json_file}.tmp" && mv "${json_file}.tmp" "$json_file"
+                    jq '.' "$json_file" > "$output_file" 2>/dev/null || cat "$json_file" > "$output_file"
+                    ;;
+                11)
+                    echo "Note: Storage disk information editing not yet implemented. Please edit JSON file manually if needed." >&2
+                    ;;
+                12)
+                    echo "Available network adapters:" >&2
+                    jq -r '.network_adapters[] | "  \(.name)"' "$json_file" >&2
+                    read -p "Enter adapter name to edit: " adapter_name >&2
+                    read -p "Enter new speed: " new_value >&2
+                    jq "(.network_adapters[] | select(.name == \"$adapter_name\") | .speed) = \"$new_value\"" "$json_file" > "${json_file}.tmp" && mv "${json_file}.tmp" "$json_file"
+                    jq '.' "$json_file" > "$output_file" 2>/dev/null || cat "$json_file" > "$output_file"
+                    ;;
+                13)
+                    read -p "Enter new Expandability Score: " new_value >&2
+                    jq ".expandability_score = ($new_value // null)" "$json_file" > "${json_file}.tmp" && mv "${json_file}.tmp" "$json_file"
+                    jq '.' "$json_file" > "$output_file" 2>/dev/null || cat "$json_file" > "$output_file"
+                    ;;
+                14)
+                    read -p "Enter Mobile Gaming System (true/false): " new_value >&2
+                    if [[ "$new_value" =~ ^[Tt] ]]; then
+                        jq ".mobile_gaming_system = \"true\"" "$json_file" > "${json_file}.tmp" && mv "${json_file}.tmp" "$json_file"
+                    else
+                        jq ".mobile_gaming_system = \"false\"" "$json_file" > "${json_file}.tmp" && mv "${json_file}.tmp" "$json_file"
+                    fi
+                    jq '.' "$json_file" > "$output_file" 2>/dev/null || cat "$json_file" > "$output_file"
+                    ;;
+                15)
+                    ;;
+                *)
+                    echo "Invalid option" >&2
+                    ;;
+            esac
+        else
+            validated="true"
+        fi
+        
+        if [ "$validated" != "true" ]; then
+            read -p "Continue editing? (y/n): " continue_edit >&2
+            if [[ ! "$continue_edit" =~ ^[Yy] ]]; then
+                validated="true"
+            fi
+        fi
+    done
+    
+    echo "" >&2
+    read -p "Final validation: Is all information correct? (y/n): " final_confirm >&2
+    if [[ ! "$final_confirm" =~ ^[Yy] ]]; then
+        echo "Please review the JSON file manually: $json_file" >&2
+        exit 1
+    fi
+}
+
+# Function to SCP files to server
+scp_tec_files() {
+    local scp_user="$1"
+    local scp_ip="$2"
+    local json_file="$3"
+    local output_file="$4"
+    local es_response_file="$5"
+    
+    echo "Attempting to copy files to ${scp_user}@${scp_ip}..." >&2
     
     # Determine which main file to use
     local main_file=""
@@ -1319,14 +1604,14 @@ collect_tec_info() {
             if command -v rsync &> /dev/null; then
                 # rsync: trailing slash on source copies contents, not directory
                 rsync -avz "$temp_dir/" "${scp_user}@${scp_ip}:~/" || {
-                    echo "Warning: Could not rsync files to ${scp_user}@${scp_ip}."
+                    echo "Warning: Could not rsync files to ${scp_user}@${scp_ip}." >&2
                     cleanup_temp=0
                 }
             else
                 # scp: need to copy files individually or use a different approach
                 # Use find to get all files and copy them
                 (cd "$temp_dir" && find . -type f -exec scp {} "${scp_user}@${scp_ip}:~/" \; 2>/dev/null) || {
-                    echo "Warning: Could not SCP files to ${scp_user}@${scp_ip}."
+                    echo "Warning: Could not SCP files to ${scp_user}@${scp_ip}." >&2
                     cleanup_temp=0
                 }
             fi
@@ -1352,21 +1637,27 @@ collect_tec_info() {
             fi
             
             if [ $scp_failed -eq 1 ]; then
-                echo "Warning: Could not transfer files to ${scp_user}@${scp_ip}. Please copy files manually:"
-                [ -n "$main_file" ] && echo "  $main_file -> ~/t20-eut.txt"
-                [ -n "$es_response_file" ] && [ -f "$es_response_file" ] && echo "  $es_response_file -> ~/$(basename "$es_response_file")"
+                echo "Warning: Could not transfer files to ${scp_user}@${scp_ip}. Please copy files manually:" >&2
+                [ -n "$main_file" ] && echo "  $main_file -> ~/t20-eut.txt" >&2
+                [ -n "$es_response_file" ] && [ -f "$es_response_file" ] && echo "  $es_response_file -> ~/$(basename "$es_response_file")" >&2
             fi
             [ -d "$temp_dir" ] && rm -rf "$temp_dir"
         fi
     else
-        echo "Warning: Neither rsync nor scp found. Please copy files manually to ${scp_user}@${scp_ip}:"
-        [ -n "$main_file" ] && echo "  $main_file -> ~/t20-eut.txt"
-        [ -n "$es_response_file" ] && [ -f "$es_response_file" ] && echo "  $es_response_file -> ~/$(basename "$es_response_file")"
+        echo "Warning: Neither rsync nor scp found. Please copy files manually to ${scp_user}@${scp_ip}:" >&2
+        [ -n "$main_file" ] && echo "  $main_file -> ~/t20-eut.txt" >&2
+        [ -n "$es_response_file" ] && [ -f "$es_response_file" ] && echo "  $es_response_file -> ~/$(basename "$es_response_file")" >&2
     fi
 }
 
 # Collect system information
 collect_tec_info "$SCP_USER" "$SCP_IP"
+
+# Validate and review collected information
+validate_tec_info "$TEC_JSON_FILE" "$TEC_OUTPUT_FILE"
+
+# SCP files to server
+scp_tec_files "$SCP_USER" "$SCP_IP" "$TEC_JSON_FILE" "$TEC_OUTPUT_FILE" "$TEC_ES_RESPONSE_FILE"
 
 # Check if apt-proxy exists, and set the correct APT command
 if command -v apt-proxy &>/dev/null; then

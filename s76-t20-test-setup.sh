@@ -1124,12 +1124,14 @@ collect_tec_info() {
             local capacity_full=""
             local capacity_unit=""
             
-            if [ -f "${battery_path}/energy_full" ]; then
-                capacity_full=$(cat "${battery_path}/energy_full" 2>/dev/null || echo "")
-                capacity_unit="Wh"
-            elif [ -f "${battery_path}/charge_full" ]; then
+            # Prefer charge_full calculation if available (more reliable)
+            # Some systems report energy_full incorrectly or in wrong units
+            if [ -f "${battery_path}/charge_full" ] && [ -f "${battery_path}/voltage_min_design" ]; then
                 capacity_full=$(cat "${battery_path}/charge_full" 2>/dev/null || echo "")
                 capacity_unit="Ah"
+            elif [ -f "${battery_path}/energy_full" ]; then
+                capacity_full=$(cat "${battery_path}/energy_full" 2>/dev/null || echo "")
+                capacity_unit="Wh"
             fi
             
             local voltage_min_design=$(cat "${battery_path}/voltage_min_design" 2>/dev/null || echo "")

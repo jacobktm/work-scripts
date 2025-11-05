@@ -1359,10 +1359,13 @@ collect_tec_info() {
             fi
             first_adapter=false
             
-            # Get EEE status
+            # Get EEE status and maximum speed
             local eee_status="unknown"
             local eee_supported="false"
+            local max_speed="unknown"
+            
             if command -v ethtool &> /dev/null; then
+                # Get EEE status
                 local eee_info=$(ethtool --show-eee "$device" 2>/dev/null)
                 if [ -n "$eee_info" ] && ! echo "$eee_info" | grep -qi "not supported"; then
                     local eee_enabled_str=$(echo "$eee_info" | grep "EEE status:" | cut -d: -f2 | xargs || echo "")
@@ -1372,10 +1375,72 @@ collect_tec_info() {
                     eee_status="not supported"
                     eee_supported="false"
                 fi
+                
+                # Get supported speeds and find maximum
+                local ethtool_output=$(ethtool "$device" 2>/dev/null)
+                if [ -n "$ethtool_output" ]; then
+                    # Extract supported link modes
+                    local supported_modes=$(echo "$ethtool_output" | grep "Supported link modes:" | cut -d: -f2- | xargs || echo "")
+                    
+                    if [ -n "$supported_modes" ]; then
+                        # Parse speeds from link modes (e.g., "1000baseT/Full", "10000baseT/Full", "25000baseSR/Full")
+                        # Extract numeric values and convert to Mbps, then find maximum
+                        local max_speed_mbps=0
+                        local speed_values=$(echo "$supported_modes" | grep -oE '[0-9]+(base|BASE)' | grep -oE '[0-9]+' || echo "")
+                        
+                        while IFS= read -r speed_num; do
+                            if [ -n "$speed_num" ] && [[ "$speed_num" =~ ^[0-9]+$ ]]; then
+                                # Convert to Mbps (most link modes are already in Mbps)
+                                local speed_mbps=$speed_num
+                                # Check if it's a Gbps value (1000+) and convert to Mbps
+                                if [ $speed_num -ge 1000 ] && [ $speed_num -lt 100000 ]; then
+                                    # Values like 1000, 2500, 10000 are in Mbps
+                                    speed_mbps=$speed_num
+                                elif [ $speed_num -ge 100000 ]; then
+                                    # Values like 100000 might be in a different format, but treat as-is
+                                    speed_mbps=$speed_num
+                                fi
+                                
+                                if [ $speed_mbps -gt $max_speed_mbps ]; then
+                                    max_speed_mbps=$speed_mbps
+                                fi
+                            fi
+                        done <<< "$speed_values"
+                        
+                        # Format the maximum speed
+                        if [ $max_speed_mbps -gt 0 ]; then
+                            if [ $max_speed_mbps -ge 1000 ]; then
+                                # Convert to Gbps for display
+                                local speed_gbps=$(echo "scale=1; ${max_speed_mbps} / 1000" | bc 2>/dev/null || echo "$((max_speed_mbps / 1000))")
+                                # Check for common speeds and format nicely
+                                if [ "$speed_gbps" = "1.0" ] || [ "$speed_gbps" = "1" ]; then
+                                    max_speed="1 Gbps"
+                                elif [ "$speed_gbps" = "2.5" ]; then
+                                    max_speed="2.5 Gbps"
+                                elif [ "$speed_gbps" = "5.0" ] || [ "$speed_gbps" = "5" ]; then
+                                    max_speed="5 Gbps"
+                                elif [ "$speed_gbps" = "10.0" ] || [ "$speed_gbps" = "10" ]; then
+                                    max_speed="10 Gbps"
+                                elif [ "$speed_gbps" = "25.0" ] || [ "$speed_gbps" = "25" ]; then
+                                    max_speed="25 Gbps"
+                                elif [ "$speed_gbps" = "40.0" ] || [ "$speed_gbps" = "40" ]; then
+                                    max_speed="40 Gbps"
+                                elif [ "$speed_gbps" = "100.0" ] || [ "$speed_gbps" = "100" ]; then
+                                    max_speed="100 Gbps"
+                                else
+                                    max_speed="${speed_gbps} Gbps"
+                                fi
+                            else
+                                max_speed="${max_speed_mbps} Mbps"
+                            fi
+                        fi
+                    fi
+                fi
             fi
             
             echo "    {"
             echo -n "      \"name\": \"${device}\""
+            echo "," && echo -n "      \"max_speed\": \"${max_speed}\""
             echo "," && echo -n "      \"eee_supported\": ${eee_supported}"
             echo "," && echo -n "      \"eee_status\": \"${eee_status}\""
             echo ""

@@ -152,17 +152,23 @@ collect_tec_info() {
                 local can_be_mobile_gaming="false"
                 
                 if [ -n "$battery_device" ]; then
+                    local energy_full_design_file="/sys/class/power_supply/${battery_device}/energy_full_design"
                     local energy_full_file="/sys/class/power_supply/${battery_device}/energy_full"
                     local charge_full_design_file="/sys/class/power_supply/${battery_device}/charge_full_design"
                     local voltage_min_design_file="/sys/class/power_supply/${battery_device}/voltage_min_design"
                     
-                    if [ -f "$energy_full_file" ]; then
+                    if [ -f "$energy_full_design_file" ]; then
+                        # energy_full_design is in µWh, convert to Wh (matches printed spec)
+                        local energy_full_design=$(cat "$energy_full_design_file" 2>/dev/null || echo "0")
+                        battery_capacity_wh=$(echo "scale=2; ${energy_full_design} / 1000000" | bc 2>/dev/null || echo "0")
+                    elif [ -f "$energy_full_file" ]; then
                         # energy_full is in µWh, convert to Wh
                         local energy_full=$(cat "$energy_full_file" 2>/dev/null || echo "0")
                         battery_capacity_wh=$(echo "scale=2; ${energy_full} / 1000000" | bc 2>/dev/null || echo "0")
                     elif [ -f "$charge_full_design_file" ] && [ -f "$voltage_min_design_file" ]; then
                         # charge_full_design is in µAh, voltage_min_design is in µV
                         # To get Wh: (µAh * µV) / 1,000,000,000,000
+                        # Note: This may differ from printed spec due to voltage used (min vs nominal)
                         local charge_full_design=$(cat "$charge_full_design_file" 2>/dev/null || echo "0")
                         local voltage_min_design=$(cat "$voltage_min_design_file" 2>/dev/null || echo "0")
                         battery_capacity_wh=$(echo "scale=2; (${charge_full_design} * ${voltage_min_design}) / 1000000000000" | bc 2>/dev/null || echo "0")
@@ -1124,15 +1130,18 @@ collect_tec_info() {
             local capacity_full=""
             local capacity_unit=""
             
-            # Prefer charge_full_design calculation if available (more reliable)
-            # Use design capacity (original spec) rather than current capacity (which degrades)
+            # Prefer energy_full_design or energy_full if available (most accurate, matches printed spec)
+            # Then fall back to charge_full_design calculation if needed
             # Some systems report energy_full incorrectly or in wrong units
-            if [ -f "${battery_path}/charge_full_design" ] && [ -f "${battery_path}/voltage_min_design" ]; then
-                capacity_full=$(cat "${battery_path}/charge_full_design" 2>/dev/null || echo "")
-                capacity_unit="Ah"
+            if [ -f "${battery_path}/energy_full_design" ]; then
+                capacity_full=$(cat "${battery_path}/energy_full_design" 2>/dev/null || echo "")
+                capacity_unit="Wh"
             elif [ -f "${battery_path}/energy_full" ]; then
                 capacity_full=$(cat "${battery_path}/energy_full" 2>/dev/null || echo "")
                 capacity_unit="Wh"
+            elif [ -f "${battery_path}/charge_full_design" ] && [ -f "${battery_path}/voltage_min_design" ]; then
+                capacity_full=$(cat "${battery_path}/charge_full_design" 2>/dev/null || echo "")
+                capacity_unit="Ah"
             fi
             
             local voltage_min_design=$(cat "${battery_path}/voltage_min_design" 2>/dev/null || echo "")
@@ -1141,18 +1150,35 @@ collect_tec_info() {
             local model_name=$(cat "${battery_path}/model_name" 2>/dev/null || echo "")
             
             # Calculate capacity in Wh if we have charge in Ah
+            local capacity_wh=""
             if [ -n "$capacity_full" ] && [ -n "$voltage_min_design" ] && [ "$capacity_unit" = "Ah" ]; then
                 # capacity_full is in µAh, voltage_min_design is in µV
                 # To get Wh: (µAh * µV) / 1,000,000,000,000
-                local capacity_wh=$(echo "scale=2; (${capacity_full} * ${voltage_min_design}) / 1000000000000" | bc 2>/dev/null || echo "")
+                capacity_wh=$(echo "scale=2; (${capacity_full} * ${voltage_min_design}) / 1000000000000" | bc 2>/dev/null || echo "")
                 echo "    \"capacity_full_wh\": \"${capacity_wh}\","
                 echo "    \"capacity_full_ah\": \"$(echo "scale=2; ${capacity_full} / 1000000" | bc 2>/dev/null || echo "")\","
             elif [ -n "$capacity_full" ] && [ "$capacity_unit" = "Wh" ]; then
-                echo "    \"capacity_full_wh\": \"$(echo "scale=2; ${capacity_full} / 1000000" | bc 2>/dev/null || echo "")\","
+                capacity_wh=$(echo "scale=2; ${capacity_full} / 1000000" | bc 2>/dev/null || echo "")
+                echo "    \"capacity_full_wh\": \"${capacity_wh}\","
                 echo "    \"capacity_full_ah\": null,"
             else
                 echo "    \"capacity_full_wh\": null,"
                 echo "    \"capacity_full_ah\": null,"
+            fi
+            
+            # Calculate printed capacity (may be capped at 99Wh to avoid shipping restrictions)
+            # Batteries >= 100Wh have stricter shipping regulations, so manufacturers often print 99Wh
+            if [ -n "$capacity_wh" ] && [ "$capacity_wh" != "null" ]; then
+                local capacity_wh_printed=""
+                local capacity_wh_compare=$(echo "$capacity_wh >= 100" | bc 2>/dev/null || echo "0")
+                if [ "$capacity_wh_compare" = "1" ]; then
+                    capacity_wh_printed="99.00"
+                else
+                    capacity_wh_printed="$capacity_wh"
+                fi
+                echo "    \"capacity_full_wh_printed\": \"${capacity_wh_printed}\","
+            else
+                echo "    \"capacity_full_wh_printed\": null,"
             fi
             
             echo "    \"voltage_min_design_v\": \"$(echo "scale=3; ${voltage_min_design} / 1000000" | bc 2>/dev/null || echo "")\","

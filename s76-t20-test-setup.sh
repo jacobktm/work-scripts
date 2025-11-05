@@ -671,12 +671,8 @@ collect_tec_info() {
         else
             echo -n "    \"expandability_score\": null"
         fi
-        if [ "$is_notebook" = "true" ]; then
-            echo ","
-            echo "    \"mobile_gaming_system\": ${mobile_gaming_system}"
-        else
-            echo ""
-        fi
+        echo ","
+        echo "    \"mobile_gaming_system\": ${mobile_gaming_system}"
         echo "  },"
         
         # Chassis/Form Factor
@@ -709,8 +705,19 @@ collect_tec_info() {
         # CPU Information
         echo "  \"cpu\": {"
         local cpu_model=$(grep "model name" /proc/cpuinfo | head -1 | cut -d: -f2 | xargs)
-        local cpu_cores=$(nproc)
-        local cpu_threads=$(grep -c processor /proc/cpuinfo)
+        # Get actual cores and threads from lscpu
+        local cpu_cores=$(lscpu 2>/dev/null | grep "^Core(s) per socket:" | awk '{print $4}' || echo "")
+        local cpu_sockets=$(lscpu 2>/dev/null | grep "^Socket(s):" | awk '{print $2}' || echo "1")
+        if [ -z "$cpu_cores" ]; then
+            # Fallback: try to get from CPU(s)
+            cpu_cores=$(lscpu 2>/dev/null | grep "^CPU(s):" | awk '{print $2}' || nproc)
+        fi
+        # Calculate total cores
+        local total_cores=$(echo "${cpu_cores} * ${cpu_sockets}" | bc 2>/dev/null || echo "$cpu_cores")
+        # Get total threads
+        local cpu_threads=$(lscpu 2>/dev/null | grep "^CPU(s):" | awk '{print $2}' || nproc)
+        # Use total_cores for cores field
+        cpu_cores="$total_cores"
         local cpu_family=$(grep "cpu family" /proc/cpuinfo | head -1 | cut -d: -f2 | xargs)
         local cpu_model_num=$(grep "^model[[:space:]]*:" /proc/cpuinfo | head -1 | cut -d: -f2 | xargs)
         local cpu_stepping=$(grep "stepping" /proc/cpuinfo | head -1 | cut -d: -f2 | xargs)
@@ -840,8 +847,56 @@ collect_tec_info() {
         fi
         echo ""
         echo "    ],"
+        
+        # Calculate total memory capacity from DIMM sizes
+        local total_capacity_mb=0
+        local current_dimm_cap=""
+        while IFS= read -r line; do
+            if [[ "$line" =~ ^Handle ]]; then
+                if [ -n "$current_dimm_cap" ] && echo "$current_dimm_cap" | grep -q "Size:" && ! echo "$current_dimm_cap" | grep -q "No Module Installed"; then
+                    local size_str=$(echo "$current_dimm_cap" | grep "Size:" | cut -d: -f2 | xargs)
+                    # Extract size value (e.g., "16 GB" -> 16, "8192 MB" -> 8192)
+                    local size_num=$(echo "$size_str" | grep -oE '[0-9]+' | head -1)
+                    local size_unit=$(echo "$size_str" | grep -oE '(GB|MB|KB)' | head -1)
+                    if [ -n "$size_num" ] && [[ "$size_num" =~ ^[0-9]+$ ]]; then
+                        if [ "$size_unit" = "GB" ]; then
+                            total_capacity_mb=$((total_capacity_mb + size_num * 1024))
+                        elif [ "$size_unit" = "MB" ]; then
+                            total_capacity_mb=$((total_capacity_mb + size_num))
+                        elif [ "$size_unit" = "KB" ]; then
+                            total_capacity_mb=$((total_capacity_mb + size_num / 1024))
+                        fi
+                    fi
+                fi
+                current_dimm_cap="$line"$'\n'
+            else
+                current_dimm_cap+="$line"$'\n'
+            fi
+        done <<< "$dimm_data"
+        # Process last DIMM
+        if [ -n "$current_dimm_cap" ] && echo "$current_dimm_cap" | grep -q "Size:" && ! echo "$current_dimm_cap" | grep -q "No Module Installed"; then
+            local size_str=$(echo "$current_dimm_cap" | grep "Size:" | cut -d: -f2 | xargs)
+            local size_num=$(echo "$size_str" | grep -oE '[0-9]+' | head -1)
+            local size_unit=$(echo "$size_str" | grep -oE '(GB|MB|KB)' | head -1)
+            if [ -n "$size_num" ] && [[ "$size_num" =~ ^[0-9]+$ ]]; then
+                if [ "$size_unit" = "GB" ]; then
+                    total_capacity_mb=$((total_capacity_mb + size_num * 1024))
+                elif [ "$size_unit" = "MB" ]; then
+                    total_capacity_mb=$((total_capacity_mb + size_num))
+                elif [ "$size_unit" = "KB" ]; then
+                    total_capacity_mb=$((total_capacity_mb + size_num / 1024))
+                fi
+            fi
+        fi
+        
+        local total_capacity_gb=""
+        if [ $total_capacity_mb -gt 0 ]; then
+            total_capacity_gb=$(echo "scale=2; ${total_capacity_mb} / 1024" | bc 2>/dev/null || echo "$((total_capacity_mb / 1024))")
+        fi
+        
         local total_memory=$(free -h | grep "Mem:" | awk '{print $2}')
         echo "    \"total_memory\": \"${total_memory}\","
+        echo "    \"total_capacity_gb\": ${total_capacity_gb:-null},"
         
         # Calculate total system memory bus width (sum of all DIMMs' total width)
         local total_bus_width=0
@@ -1109,8 +1164,26 @@ collect_tec_info() {
         echo "Collecting display color gamut information..." >&2
         declare -A display_gamuts
         for display_name in "${display_names[@]}"; do
-            read -p "Enter color gamut for display '${display_name}' (e.g., '99% sRGB', '100% DCI-P3', '72% NTSC'): " color_gamut
-            display_gamuts["$display_name"]="${color_gamut:-null}"
+            echo "" >&2
+            echo "Color gamut options for display '${display_name}':" >&2
+            echo "  A - <= 32.9% of CIELUV" >&2
+            echo "  B - > 32.9% of CIELUV (99% or more of defined sRGB colors)" >&2
+            echo "  C - > 38.4% of CIELUV (99% or more of defined Adobe RGB colors)" >&2
+            read -p "Select color gamut (A/B/C): " color_gamut_choice
+            case "${color_gamut_choice^^}" in
+                A)
+                    display_gamuts["$display_name"]="A - <= 32.9% of CIELUV"
+                    ;;
+                B)
+                    display_gamuts["$display_name"]="B - > 32.9% of CIELUV (99% or more of defined sRGB colors)"
+                    ;;
+                C)
+                    display_gamuts["$display_name"]="C - > 38.4% of CIELUV (99% or more of defined Adobe RGB colors)"
+                    ;;
+                *)
+                    display_gamuts["$display_name"]="${color_gamut_choice:-null}"
+                    ;;
+            esac
         done
         echo "" >&2
         
@@ -1171,99 +1244,36 @@ collect_tec_info() {
         # Network Adapters Information
         echo "  \"network_adapters\": ["
         local first_adapter=true
-        for device in $(nmcli device | awk '$2=="ethernet" {print $1}'); do
+        # Get all ethernet adapters, not just connected ones
+        for device in $(ls /sys/class/net/ 2>/dev/null | grep -E '^e(th|n|m)' | grep -v lo); do
+            # Verify it's actually an ethernet adapter (has device directory)
+            if [ ! -d "/sys/class/net/$device/device" ]; then
+                continue
+            fi
             if [ "$first_adapter" = false ]; then
                 echo ","
             fi
             first_adapter=false
             
-            # Get link speed and supported speeds
-            local link_speed=""
-            local supported_speeds=""
-            local current_speed=""
-            
-            if command -v ethtool &> /dev/null; then
-                # Get current link speed
-                local ethtool_info=$(ethtool "$device" 2>/dev/null)
-                current_speed=$(echo "$ethtool_info" | grep "Speed:" | cut -d: -f2 | xargs || echo "")
-                
-                # Get supported speeds (from Supported link modes)
-                supported_speeds=$(echo "$ethtool_info" | grep -A 1 "Supported link modes:" | tail -1 | xargs || echo "")
-                
-                # Parse current speed to a standard format (10G, 2.5G, 1G, 100M, etc.)
-                if [ -n "$current_speed" ]; then
-                    local speed_num=$(echo "$current_speed" | grep -oE '[0-9]+' | head -1)
-                    local speed_unit=$(echo "$current_speed" | grep -oE '(Mb/s|Gb/s|Mb/s)' | head -1)
-                    if [[ "$speed_unit" =~ "Gb/s" ]]; then
-                        link_speed="${speed_num}G"
-                    elif [[ "$speed_unit" =~ "Mb/s" ]]; then
-                        if [ "$speed_num" -ge 1000 ]; then
-                            # Convert to Gb/s
-                            link_speed=$(echo "scale=1; ${speed_num} / 1000" | bc | sed 's/\.0$//')"G"
-                        else
-                            link_speed="${speed_num}M"
-                        fi
-                    fi
-                fi
-            fi
-            
             # Get EEE status
             local eee_status="unknown"
-            local eee_enabled="false"
-            local eee_active="false"
+            local eee_supported="false"
             if command -v ethtool &> /dev/null; then
                 local eee_info=$(ethtool --show-eee "$device" 2>/dev/null)
-                if [ -n "$eee_info" ]; then
+                if [ -n "$eee_info" ] && ! echo "$eee_info" | grep -qi "not supported"; then
                     local eee_enabled_str=$(echo "$eee_info" | grep "EEE status:" | cut -d: -f2 | xargs || echo "")
-                    local eee_active_str=$(echo "$eee_info" | grep "Active:" | cut -d: -f2 | xargs || echo "")
                     eee_status="$eee_enabled_str"
-                    if [[ "$eee_enabled_str" =~ "enabled" ]]; then
-                        eee_enabled="true"
-                    fi
-                    if [[ "$eee_active_str" =~ "yes" ]] || [[ "$eee_active_str" =~ "active" ]]; then
-                        eee_active="true"
-                    fi
+                    eee_supported="true"
                 else
                     eee_status="not supported"
-                fi
-            fi
-            
-            # Get MAC address
-            local mac_address=$(cat "/sys/class/net/${device}/address" 2>/dev/null || echo "")
-            
-            # Get driver information
-            local driver=$(ethtool -i "$device" 2>/dev/null | grep "driver:" | cut -d: -f2 | xargs || echo "")
-            local driver_version=$(ethtool -i "$device" 2>/dev/null | grep "version:" | cut -d: -f2 | xargs || echo "")
-            local firmware_version=$(ethtool -i "$device" 2>/dev/null | grep "firmware-version:" | cut -d: -f2 | xargs || echo "")
-            
-            # Get vendor and model from PCI information if available
-            local vendor_id=""
-            local device_id=""
-            local vendor_name=""
-            if [ -f "/sys/class/net/${device}/device/vendor" ] && [ -f "/sys/class/net/${device}/device/device" ]; then
-                vendor_id=$(cat "/sys/class/net/${device}/device/vendor" 2>/dev/null || echo "")
-                device_id=$(cat "/sys/class/net/${device}/device/device" 2>/dev/null || echo "")
-                # Try to get vendor name from lspci if available
-                if command -v lspci &> /dev/null && [ -n "$vendor_id" ] && [ -n "$device_id" ]; then
-                    vendor_name=$(lspci -d "${vendor_id}:${device_id}" 2>/dev/null | cut -d: -f3 | cut -d'(' -f1 | xargs || echo "")
+                    eee_supported="false"
                 fi
             fi
             
             echo "    {"
             echo -n "      \"name\": \"${device}\""
-            [ -n "$mac_address" ] && echo "," && echo -n "      \"mac_address\": \"${mac_address}\""
-            [ -n "$current_speed" ] && echo "," && echo -n "      \"current_speed\": \"${current_speed}\""
-            [ -n "$link_speed" ] && echo "," && echo -n "      \"link_speed\": \"${link_speed}\""
-            [ -n "$supported_speeds" ] && echo "," && echo -n "      \"supported_speeds\": \"${supported_speeds}\""
+            echo "," && echo -n "      \"eee_supported\": ${eee_supported}"
             echo "," && echo -n "      \"eee_status\": \"${eee_status}\""
-            echo "," && echo -n "      \"eee_enabled\": ${eee_enabled}"
-            echo "," && echo -n "      \"eee_active\": ${eee_active}"
-            [ -n "$driver" ] && echo "," && echo -n "      \"driver\": \"${driver}\""
-            [ -n "$driver_version" ] && echo "," && echo -n "      \"driver_version\": \"${driver_version}\""
-            [ -n "$firmware_version" ] && echo "," && echo -n "      \"firmware_version\": \"${firmware_version}\""
-            [ -n "$vendor_name" ] && echo "," && echo -n "      \"vendor\": \"${vendor_name}\""
-            [ -n "$vendor_id" ] && echo "," && echo -n "      \"vendor_id\": \"${vendor_id}\""
-            [ -n "$device_id" ] && echo "," && echo -n "      \"device_id\": \"${device_id}\""
             echo ""
             echo -n "    }"
         done
@@ -1418,7 +1428,7 @@ validate_tec_info() {
             (.storage.disks[] | "  " + .name + ": " + .type + " " + (.size_gb | tostring) + "GB"),
             "",
             "Network Adapters:",
-            (.network_adapters[] | "  " + .name + ": " + (.speed // "null") + " (" + (.eee_status // "null") + ")"),
+            (.network_adapters[] | "  " + .name + ": EEE supported=" + (.eee_supported // "false" | tostring) + " (" + (.eee_status // "null") + ")"),
             "",
             "Operating System:",
             "  Name: " + (.operating_system.name // "null"),

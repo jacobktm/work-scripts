@@ -161,10 +161,11 @@ collect_tec_info() {
                         local energy_full=$(cat "$energy_full_file" 2>/dev/null || echo "0")
                         battery_capacity_wh=$(echo "scale=2; ${energy_full} / 1000000" | bc 2>/dev/null || echo "0")
                     elif [ -f "$charge_full_file" ] && [ -f "$voltage_min_design_file" ]; then
-                        # charge_full is in µAh, need to multiply by voltage
+                        # charge_full is in µAh, voltage_min_design is in µV
+                        # To get Wh: (µAh * µV) / 1,000,000,000,000
                         local charge_full=$(cat "$charge_full_file" 2>/dev/null || echo "0")
                         local voltage_min_design=$(cat "$voltage_min_design_file" 2>/dev/null || echo "0")
-                        battery_capacity_wh=$(echo "scale=2; (${charge_full} * ${voltage_min_design}) / 1000000000" | bc 2>/dev/null || echo "0")
+                        battery_capacity_wh=$(echo "scale=2; (${charge_full} * ${voltage_min_design}) / 1000000000000" | bc 2>/dev/null || echo "0")
                     fi
                 fi
                 
@@ -1138,7 +1139,9 @@ collect_tec_info() {
             
             # Calculate capacity in Wh if we have charge in Ah
             if [ -n "$capacity_full" ] && [ -n "$voltage_min_design" ] && [ "$capacity_unit" = "Ah" ]; then
-                local capacity_wh=$(echo "scale=2; (${capacity_full} * ${voltage_min_design}) / 1000000" | bc 2>/dev/null || echo "")
+                # capacity_full is in µAh, voltage_min_design is in µV
+                # To get Wh: (µAh * µV) / 1,000,000,000,000
+                local capacity_wh=$(echo "scale=2; (${capacity_full} * ${voltage_min_design}) / 1000000000000" | bc 2>/dev/null || echo "")
                 echo "    \"capacity_full_wh\": \"${capacity_wh}\","
                 echo "    \"capacity_full_ah\": \"$(echo "scale=2; ${capacity_full} / 1000000" | bc 2>/dev/null || echo "")\","
             elif [ -n "$capacity_full" ] && [ "$capacity_unit" = "Wh" ]; then

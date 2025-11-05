@@ -16,53 +16,14 @@ SCRIPT_DIR="$(dirname "$(realpath "$0")")"
 BATTERY_CAPACITY_FILE="/tmp/battery_capacity_wh.txt"
 battery_device=$(ls /sys/class/power_supply/ 2>/dev/null | grep -E '^BAT[0-9]' | head -1)
 if [ -n "$battery_device" ]; then
-    battery_path="/sys/class/power_supply/${battery_device}"
-    battery_capacity_suggestion=""
-    
-    # Try to read battery capacity from system files
-    energy_full_design_file="${battery_path}/energy_full_design"
-    energy_full_file="${battery_path}/energy_full"
-    charge_full_design_file="${battery_path}/charge_full_design"
-    voltage_min_design_file="${battery_path}/voltage_min_design"
-    
-    if [ -f "$energy_full_design_file" ]; then
-        energy_full_design=$(cat "$energy_full_design_file" 2>/dev/null || echo "0")
-        battery_capacity_suggestion=$(echo "scale=2; ${energy_full_design} / 1000000" | bc 2>/dev/null || echo "")
-    elif [ -f "$energy_full_file" ]; then
-        energy_full=$(cat "$energy_full_file" 2>/dev/null || echo "0")
-        battery_capacity_suggestion=$(echo "scale=2; ${energy_full} / 1000000" | bc 2>/dev/null || echo "")
-    elif [ -f "$charge_full_design_file" ] && [ -f "$voltage_min_design_file" ]; then
-        charge_full_design=$(cat "$charge_full_design_file" 2>/dev/null || echo "0")
-        voltage_min_design=$(cat "$voltage_min_design_file" 2>/dev/null || echo "0")
-        battery_capacity_suggestion=$(echo "scale=2; (${charge_full_design} * ${voltage_min_design}) / 1000000000000" | bc 2>/dev/null || echo "")
-    fi
-    
     echo "=========================================="
     echo "BATTERY DETECTED: ${battery_device}"
     echo "=========================================="
-    if [ -n "$battery_capacity_suggestion" ] && [ "$battery_capacity_suggestion" != "0" ]; then
-        echo ""
-        echo "Detected battery capacity: ${battery_capacity_suggestion} Wh"
-        echo ""
-        echo "Please note this battery capacity value."
-        echo "The system will shutdown after you press Enter so you can remove the battery."
-        echo ""
-        read -p "Press Enter when ready to shutdown and remove the battery... "
-        battery_capacity_wh="$battery_capacity_suggestion"
-    else
-        echo ""
-        echo "Could not automatically detect battery capacity."
-        echo "Please check the battery label and note the capacity in Wh."
-        echo ""
-        read -p "Enter the battery capacity (in Wh): " battery_capacity_wh
-        echo ""
-        echo "The system will shutdown after you press Enter so you can remove the battery."
-        echo ""
-        read -p "Press Enter when ready to shutdown and remove the battery... "
-    fi
-    
-    # Save battery capacity to file for retrieval after restart
-    echo "$battery_capacity_wh" > "$BATTERY_CAPACITY_FILE" 2>/dev/null || echo "$battery_capacity_wh" > ~/battery_capacity_wh.txt
+    echo ""
+    echo "Please check the battery label and note the capacity printed on it (in Wh)."
+    echo "The system will shutdown after you press Enter so you can remove the battery."
+    echo ""
+    read -p "Press Enter when ready to shutdown and remove the battery... "
     
     echo ""
     echo "Shutting down system in 5 seconds..."
@@ -72,12 +33,21 @@ if [ -n "$battery_device" ]; then
 fi
 
 # If no battery detected, check for saved capacity from previous run
+# If not found, prompt for capacity (engineer should have noted it before removing)
 if [ -f "$BATTERY_CAPACITY_FILE" ]; then
     battery_capacity_wh=$(cat "$BATTERY_CAPACITY_FILE" 2>/dev/null | xargs)
     rm -f "$BATTERY_CAPACITY_FILE"
 elif [ -f ~/battery_capacity_wh.txt ]; then
     battery_capacity_wh=$(cat ~/battery_capacity_wh.txt 2>/dev/null | xargs)
     rm -f ~/battery_capacity_wh.txt
+else
+    # No battery and no saved capacity - check if this is a notebook
+    chassis_type=$(sudo dmidecode --type chassis 2>/dev/null | grep "Type:" | awk '{print $2}' || echo "")
+    if [[ "$chassis_type" == "Notebook" || "$chassis_type" == "Laptop" ]]; then
+        echo "No battery detected. Please enter the battery capacity that was noted before removal."
+        read -p "Enter battery capacity from the label (in Wh): " battery_capacity_wh
+        echo ""
+    fi
 fi
 
 # Install necessary packages
@@ -1188,10 +1158,11 @@ collect_tec_info() {
         echo "  \"battery\": {"
         local battery_device=$(ls /sys/class/power_supply/ | grep -E '^BAT[0-9]' | head -1)
         
-        # Use prompted battery capacity if available (from earlier in function), otherwise try to read from files
+        # Use prompted battery capacity if available (from global scope - saved from before battery removal)
+        # Otherwise try to read from files if battery is still present
         local capacity_wh=""
         if [ -n "$battery_capacity_wh" ] && [ "$battery_capacity_wh" != "" ]; then
-            # Use the prompted value
+            # Use the prompted value (from saved file after restart)
             capacity_wh="$battery_capacity_wh"
             echo "    \"capacity_full_wh\": \"${capacity_wh}\","
             echo "    \"capacity_full_ah\": null,"
@@ -1232,6 +1203,7 @@ collect_tec_info() {
                 echo "    \"capacity_full_ah\": null,"
             fi
         else
+            # No battery device and no saved capacity - set to null
             echo "    \"capacity_full_wh\": null,"
             echo "    \"capacity_full_ah\": null,"
         fi
@@ -1265,8 +1237,11 @@ collect_tec_info() {
             echo "    \"present\": true"
         else
             echo "    \"present\": false,"
-            echo "    \"capacity_full_wh\": null,"
-            echo "    \"capacity_full_ah\": null,"
+            # Only output capacity fields as null if we didn't already output them above
+            if [ -z "$capacity_wh" ] || [ "$capacity_wh" = "null" ] || [ "$capacity_wh" = "" ]; then
+                echo "    \"capacity_full_wh\": null,"
+                echo "    \"capacity_full_ah\": null,"
+            fi
             echo "    \"voltage_min_design_v\": null,"
             echo "    \"technology\": null,"
             echo "    \"manufacturer\": null,"

@@ -1379,27 +1379,51 @@ collect_tec_info() {
                 # Get supported speeds and find maximum
                 local ethtool_output=$(ethtool "$device" 2>/dev/null)
                 if [ -n "$ethtool_output" ]; then
-                    # Extract supported link modes
-                    local supported_modes=$(echo "$ethtool_output" | grep "Supported link modes:" | cut -d: -f2- | xargs || echo "")
+                    # Extract supported link modes - get all lines that are indented after "Supported link modes:"
+                    # The "Supported link modes:" section can span multiple lines
+                    local in_section=false
+                    local supported_modes=""
+                    while IFS= read -r line; do
+                        if echo "$line" | grep -q "Supported link modes:"; then
+                            in_section=true
+                            # Get the rest of the line after the colon
+                            local rest=$(echo "$line" | sed 's/.*Supported link modes:[[:space:]]*//')
+                            if [ -n "$rest" ]; then
+                                supported_modes="${supported_modes} ${rest}"
+                            fi
+                        elif [ "$in_section" = true ]; then
+                            # Check if this line starts a new section (starts with a letter or has a colon)
+                            if echo "$line" | grep -qE '^[[:space:]]*[A-Za-z]'; then
+                                if echo "$line" | grep -qE ':[[:space:]]*$|:[[:space:]]+[^[:space:]]'; then
+                                    # This is a new section header
+                                    break
+                                fi
+                            fi
+                            # Check if line is still part of link modes (starts with whitespace and has "base")
+                            if echo "$line" | grep -qE '^[[:space:]]+.*base'; then
+                                supported_modes="${supported_modes} $(echo "$line" | sed 's/^[[:space:]]*//')"
+                            elif echo "$line" | grep -qE '^[[:space:]]*$'; then
+                                # Empty line, continue
+                                continue
+                            else
+                                # Probably next section
+                                break
+                            fi
+                        fi
+                    done <<< "$ethtool_output"
+                    supported_modes=$(echo "$supported_modes" | xargs)
                     
                     if [ -n "$supported_modes" ]; then
                         # Parse speeds from link modes (e.g., "1000baseT/Full", "10000baseT/Full", "25000baseSR/Full")
                         # Extract numeric values and convert to Mbps, then find maximum
                         local max_speed_mbps=0
-                        local speed_values=$(echo "$supported_modes" | grep -oE '[0-9]+(base|BASE)' | grep -oE '[0-9]+' || echo "")
+                        # Extract all speed numbers (e.g., 10, 100, 1000 from "10baseT", "100baseT", "1000baseT")
+                        local speed_values=$(echo "$supported_modes" | grep -oE '[0-9]+(base|BASE|Base)' | grep -oE '[0-9]+' || echo "")
                         
                         while IFS= read -r speed_num; do
                             if [ -n "$speed_num" ] && [[ "$speed_num" =~ ^[0-9]+$ ]]; then
-                                # Convert to Mbps (most link modes are already in Mbps)
+                                # The speed_num is already in Mbps (10 = 10 Mbps, 100 = 100 Mbps, 1000 = 1000 Mbps = 1 Gbps)
                                 local speed_mbps=$speed_num
-                                # Check if it's a Gbps value (1000+) and convert to Mbps
-                                if [ $speed_num -ge 1000 ] && [ $speed_num -lt 100000 ]; then
-                                    # Values like 1000, 2500, 10000 are in Mbps
-                                    speed_mbps=$speed_num
-                                elif [ $speed_num -ge 100000 ]; then
-                                    # Values like 100000 might be in a different format, but treat as-is
-                                    speed_mbps=$speed_num
-                                fi
                                 
                                 if [ $speed_mbps -gt $max_speed_mbps ]; then
                                     max_speed_mbps=$speed_mbps

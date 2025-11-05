@@ -724,13 +724,33 @@ collect_tec_info() {
         fi
         
         # Output expandability score and mobile gaming system flag
+        echo "DEBUG: Before JSON output - expandability_score = '${expandability_score}'" >&2
+        echo "DEBUG: Before JSON output - mobile_gaming_system = '${mobile_gaming_system}'" >&2
+        echo "DEBUG: Before JSON output - is_notebook = '${is_notebook}'" >&2
+        
+        # Re-check if notebook with expandability score should be mobile gaming system
+        # (in case variables got lost somehow)
+        if [ -n "$expandability_score" ] && [ "$is_notebook" = "true" ]; then
+            mobile_gaming_system="true"
+            echo "DEBUG: Re-checked: Setting mobile_gaming_system = true (notebook with expandability_score)" >&2
+        fi
+        
+        echo "DEBUG: Final values before JSON output:" >&2
+        echo "DEBUG:   expandability_score = '${expandability_score}'" >&2
+        echo "DEBUG:   mobile_gaming_system = '${mobile_gaming_system}'" >&2
+        
         if [ -n "$expandability_score" ]; then
             echo -n "    \"expandability_score\": ${expandability_score}"
         else
             echo -n "    \"expandability_score\": null"
         fi
         echo ","
-        echo "    \"mobile_gaming_system\": ${mobile_gaming_system}"
+        # Ensure mobile_gaming_system is output as boolean
+        if [ "$mobile_gaming_system" = "true" ]; then
+            echo "    \"mobile_gaming_system\": true"
+        else
+            echo "    \"mobile_gaming_system\": false"
+        fi
         echo "  },"
         
         # Chassis/Form Factor

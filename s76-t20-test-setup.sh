@@ -153,19 +153,19 @@ collect_tec_info() {
                 
                 if [ -n "$battery_device" ]; then
                     local energy_full_file="/sys/class/power_supply/${battery_device}/energy_full"
-                    local charge_full_file="/sys/class/power_supply/${battery_device}/charge_full"
+                    local charge_full_design_file="/sys/class/power_supply/${battery_device}/charge_full_design"
                     local voltage_min_design_file="/sys/class/power_supply/${battery_device}/voltage_min_design"
                     
                     if [ -f "$energy_full_file" ]; then
                         # energy_full is in µWh, convert to Wh
                         local energy_full=$(cat "$energy_full_file" 2>/dev/null || echo "0")
                         battery_capacity_wh=$(echo "scale=2; ${energy_full} / 1000000" | bc 2>/dev/null || echo "0")
-                    elif [ -f "$charge_full_file" ] && [ -f "$voltage_min_design_file" ]; then
-                        # charge_full is in µAh, voltage_min_design is in µV
+                    elif [ -f "$charge_full_design_file" ] && [ -f "$voltage_min_design_file" ]; then
+                        # charge_full_design is in µAh, voltage_min_design is in µV
                         # To get Wh: (µAh * µV) / 1,000,000,000,000
-                        local charge_full=$(cat "$charge_full_file" 2>/dev/null || echo "0")
+                        local charge_full_design=$(cat "$charge_full_design_file" 2>/dev/null || echo "0")
                         local voltage_min_design=$(cat "$voltage_min_design_file" 2>/dev/null || echo "0")
-                        battery_capacity_wh=$(echo "scale=2; (${charge_full} * ${voltage_min_design}) / 1000000000000" | bc 2>/dev/null || echo "0")
+                        battery_capacity_wh=$(echo "scale=2; (${charge_full_design} * ${voltage_min_design}) / 1000000000000" | bc 2>/dev/null || echo "0")
                     fi
                 fi
                 
@@ -1124,10 +1124,11 @@ collect_tec_info() {
             local capacity_full=""
             local capacity_unit=""
             
-            # Prefer charge_full calculation if available (more reliable)
+            # Prefer charge_full_design calculation if available (more reliable)
+            # Use design capacity (original spec) rather than current capacity (which degrades)
             # Some systems report energy_full incorrectly or in wrong units
-            if [ -f "${battery_path}/charge_full" ] && [ -f "${battery_path}/voltage_min_design" ]; then
-                capacity_full=$(cat "${battery_path}/charge_full" 2>/dev/null || echo "")
+            if [ -f "${battery_path}/charge_full_design" ] && [ -f "${battery_path}/voltage_min_design" ]; then
+                capacity_full=$(cat "${battery_path}/charge_full_design" 2>/dev/null || echo "")
                 capacity_unit="Ah"
             elif [ -f "${battery_path}/energy_full" ]; then
                 capacity_full=$(cat "${battery_path}/energy_full" 2>/dev/null || echo "")

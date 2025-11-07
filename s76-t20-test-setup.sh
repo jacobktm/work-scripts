@@ -15,6 +15,33 @@ SCRIPT_DIR="$(dirname "$(realpath "$0")")"
 # This must happen before any setup work (git clone, settings changes, etc.)
 BATTERY_CAPACITY_FILE="/tmp/battery_capacity_wh.txt"
 battery_device=$(ls /sys/class/power_supply/ 2>/dev/null | grep -E '^BAT[0-9]' | head -1)
+# Cache system/chassis metadata for reuse throughout the script
+DMI_TYPE0=$(sudo dmidecode --type 0 2>/dev/null)
+DMI_TYPE1=$(sudo dmidecode --type 1 2>/dev/null)
+DMI_TYPE2=$(sudo dmidecode --type 2 2>/dev/null)
+DMI_CHASSIS=$(sudo dmidecode --type chassis 2>/dev/null)
+SYSTEM_MANUFACTURER=$(echo "$DMI_TYPE1" | grep "Manufacturer:" | head -1 | cut -d: -f2 | xargs)
+PRODUCT_NAME=$(echo "$DMI_TYPE1" | grep "Product Name:" | head -1 | cut -d: -f2 | xargs)
+SYSTEM_VERSION=$(echo "$DMI_TYPE1" | grep "Version:" | head -1 | cut -d: -f2 | xargs)
+BASEBOARD_MANUFACTURER=$(echo "$DMI_TYPE2" | grep "Manufacturer:" | head -1 | cut -d: -f2 | xargs)
+BASEBOARD_PRODUCT=$(echo "$DMI_TYPE2" | grep "Product Name:" | head -1 | cut -d: -f2 | xargs)
+BASEBOARD_VERSION=$(echo "$DMI_TYPE2" | grep "Version:" | head -1 | cut -d: -f2 | xargs)
+CHASSIS_TYPE=$(echo "$DMI_CHASSIS" | grep "Type:" | head -1 | cut -d: -f2 | xargs)
+CHASSIS_MANUFACTURER=$(echo "$DMI_CHASSIS" | grep "Manufacturer:" | head -1 | cut -d: -f2 | xargs)
+CHASSIS_VERSION=$(echo "$DMI_CHASSIS" | grep "Version:" | head -1 | cut -d: -f2 | xargs)
+PRODUCT_LOWER=$(echo "$PRODUCT_NAME" | tr '[:upper:]' '[:lower:]')
+VERSION_LOWER=$(echo "$SYSTEM_VERSION" | tr '[:upper:]' '[:lower:]')
+BASEBOARD_VERSION_LOWER=$(echo "$BASEBOARD_VERSION" | tr '[:upper:]' '[:lower:]')
+CHASSIS_TYPE_LOWER=$(echo "$CHASSIS_TYPE" | tr '[:upper:]' '[:lower:]')
+IS_NOTEBOOK="false"
+if [[ "$CHASSIS_TYPE_LOWER" == "notebook" || "$CHASSIS_TYPE_LOWER" == "laptop" ]]; then
+    IS_NOTEBOOK="true"
+fi
+IS_PORTABLE_ALL_IN_ONE="false"
+if [[ "$CHASSIS_TYPE_LOWER" == portable* ]] || [[ "$CHASSIS_TYPE_LOWER" == "portable all in one" ]] || [[ "$PRODUCT_LOWER" == meer* ]] || [[ "$VERSION_LOWER" == meer* ]]; then
+    IS_PORTABLE_ALL_IN_ONE="true"
+fi
+
 if [ -n "$battery_device" ]; then
     echo "=========================================="
     echo "BATTERY DETECTED: ${battery_device}"
@@ -42,8 +69,7 @@ elif [ -f ~/battery_capacity_wh.txt ]; then
     rm -f ~/battery_capacity_wh.txt
 else
     # No battery and no saved capacity - check if this is a notebook
-    chassis_type=$(sudo dmidecode --type chassis 2>/dev/null | grep "Type:" | awk '{print $2}' || echo "")
-    if [[ "$chassis_type" == "Notebook" || "$chassis_type" == "Laptop" ]]; then
+    if [[ "$CHASSIS_TYPE" == "Notebook" || "$CHASSIS_TYPE" == "Laptop" ]]; then
         echo "No battery detected. Please enter the battery capacity that was noted before removal."
         read -p "Enter battery capacity from the label (in Wh): " battery_capacity_wh
         echo ""
@@ -92,38 +118,6 @@ collect_tec_info() {
     read -p "Enter power supply model number (or press Enter to skip): " psu_model_manual
     echo ""
     
-    # Cache DMI information used throughout the script
-    local dmi_type1=$(sudo dmidecode --type 1 2>/dev/null)
-    local dmi_chassis=$(sudo dmidecode --type chassis 2>/dev/null)
-    local system_manufacturer=$(echo "$dmi_type1" | grep "Manufacturer:" | head -1 | cut -d: -f2 | xargs)
-    local product_name=$(echo "$dmi_type1" | grep "Product Name:" | head -1 | cut -d: -f2 | xargs)
-    local version=$(echo "$dmi_type1" | grep "Version:" | head -1 | cut -d: -f2 | xargs)
-    local chassis_type=$(echo "$dmi_chassis" | grep "Type:" | head -1 | cut -d: -f2 | xargs)
-    local chassis_manufacturer=$(echo "$dmi_chassis" | grep "Manufacturer:" | head -1 | cut -d: -f2 | xargs)
-    local chassis_version=$(echo "$dmi_chassis" | grep "Version:" | head -1 | cut -d: -f2 | xargs)
-    local product_lower=$(echo "$product_name" | tr '[:upper:]' '[:lower:]')
-    local version_lower=$(echo "$version" | tr '[:upper:]' '[:lower:]')
-    local chassis_type_lower=$(echo "$chassis_type" | tr '[:upper:]' '[:lower:]')
-    local is_notebook="false"
-    if [[ "$chassis_type_lower" == "notebook" || "$chassis_type_lower" == "laptop" ]]; then
-        is_notebook="true"
-    fi
-    local is_portable_all_in_one="false"
-    if [[ "$chassis_type_lower" == portable* ]] || [[ "$chassis_type_lower" == "portable all in one" ]] || [[ "$product_lower" == meer* ]] || [[ "$version_lower" == meer* ]]; then
-        is_portable_all_in_one="true"
-    fi
-    
-    # Battery capacity should already be set from the check at the start of the script
-    # If not set and this is a notebook, prompt now (shouldn't happen normally)
-    if [ "$is_notebook" = "true" ]; then
-        if [ -z "$battery_capacity_wh" ]; then
-            echo "No battery detected and no saved capacity found."
-            echo "Please enter the battery capacity that was noted before removal."
-            read -p "Enter battery capacity in Wh: " battery_capacity_wh
-            echo ""
-        fi
-    fi
-    
     # Initialize JSON object
     {
         echo "{"
@@ -131,29 +125,26 @@ collect_tec_info() {
         
         # System Information
         echo "  \"system\": {"
-        echo "    \"manufacturer\": \"${system_manufacturer}\","
-        echo "    \"product_name\": \"${product_name}\","
-        echo "    \"version\": \"${version}\","
+        echo "    \"manufacturer\": \"${SYSTEM_MANUFACTURER}\","
+        echo "    \"product_name\": \"${PRODUCT_NAME}\","
+        echo "    \"version\": \"${SYSTEM_VERSION}\","
         
         # BIOS Information
-        local bios_vendor=$(sudo dmidecode --type 0 | grep "Vendor:" | cut -d: -f2 | xargs)
-        local bios_version=$(sudo dmidecode --type 0 | grep "Version:" | cut -d: -f2 | xargs)
-        local bios_date=$(sudo dmidecode --type 0 | grep "Release Date:" | cut -d: -f2 | xargs)
+        local bios_vendor="$BIOS_VENDOR"
+        local bios_version="$BIOS_VERSION"
+        local bios_date="$BIOS_RELEASE_DATE"
         echo "    \"bios_vendor\": \"${bios_vendor}\","
         echo "    \"bios_version\": \"${bios_version}\","
         echo "    \"bios_date\": \"${bios_date}\","
         
         # Get chassis type early (needed for expandability prompt logic)
-        chassis_type=$(sudo dmidecode --type chassis | grep "Type:" | awk '{print $2}')
-        local is_notebook="false"
-        if [[ "$chassis_type" == "Notebook" || "$chassis_type" == "Laptop" ]]; then
-            is_notebook="true"
-        fi
+        local chassis_type="$CHASSIS_TYPE"
+        local is_notebook="$IS_NOTEBOOK"
         
         # Get identifiers for expandability lookup
         local lookup_identifier=""
-        if [ -n "$version" ]; then
-            lookup_identifier="$version"
+        if [ -n "$SYSTEM_VERSION" ]; then
+            lookup_identifier="$SYSTEM_VERSION"
         fi
         
         # Look up expandability score from lookup file using baseboard version
@@ -198,14 +189,14 @@ collect_tec_info() {
         # Skip this entire block if we already have a score (especially for notebooks)
         if [ -z "$expandability_score" ]; then
             # Create response file for expandability calculation
-            local system_name_safe=$(echo "$product_name" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9-]/-/g' | sed 's/--*/-/g' | sed 's/^-//' | sed 's/-$//')
+            local system_name_safe=$(echo "$PRODUCT_NAME" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9-]/-/g' | sed 's/--*/-/g' | sed 's/^-//' | sed 's/-$//')
             es_response_file="${system_name_safe}-es.txt"  # Make it accessible outside this block
             
             # Initialize response file
             {
                 echo "Expandability Score Calculation Responses"
                 echo "========================================"
-                echo "System: ${product_name}"
+                echo "System: ${PRODUCT_NAME}"
                 echo "Expandability Lookup Identifier: ${lookup_identifier}"
                 echo "Date: $(date -Iseconds)"
                 echo ""
@@ -304,7 +295,7 @@ collect_tec_info() {
                     echo "MOBILE GAMING SYSTEM DETERMINATION" >&2
                     echo "═══════════════════════════════════════════════════════════════" >&2
                     echo "" >&2
-                    echo "System: ${product_name} (${lookup_identifier})" >&2
+                    echo "System: ${PRODUCT_NAME} (${lookup_identifier})" >&2
                     echo "Battery Capacity: ${battery_capacity_wh} Wh" >&2
                     echo "System Memory (GB): ${total_memory_gb_numeric:-unknown}" >&2
                     echo "" >&2
@@ -365,7 +356,7 @@ collect_tec_info() {
                 echo "EXPANDABILITY SCORE CALCULATION" >&2
                 echo "═══════════════════════════════════════════════════════════════" >&2
                 echo "" >&2
-                echo "System: ${product_name} (${lookup_identifier})" >&2
+                echo "System: ${PRODUCT_NAME} (${lookup_identifier})" >&2
                 echo "" >&2
                 echo "Please enter the count for each interface on the mainboard:" >&2
                 echo "" >&2
@@ -746,9 +737,9 @@ collect_tec_info() {
         fi
         
         # Get baseboard information for system object
-        local baseboard_manufacturer=$(sudo dmidecode --type 2 2>/dev/null | grep "Manufacturer:" | cut -d: -f2 | xargs)
-        local baseboard_product=$(sudo dmidecode --type 2 2>/dev/null | grep "Product Name:" | cut -d: -f2 | xargs)
-        local baseboard_version=$(sudo dmidecode --type 2 2>/dev/null | grep "Version:" | cut -d: -f2 | xargs)
+        local baseboard_manufacturer="$BASEBOARD_MANUFACTURER"
+        local baseboard_product="$BASEBOARD_PRODUCT"
+        local baseboard_version="$BASEBOARD_VERSION"
         echo "    \"baseboard_manufacturer\": \"${baseboard_manufacturer}\","
         echo "    \"baseboard_product\": \"${baseboard_product}\","
         echo "    \"baseboard_version\": \"${baseboard_version}\","
@@ -807,8 +798,8 @@ collect_tec_info() {
         # Chassis/Form Factor
         echo "  \"chassis\": {"
         echo "    \"type\": \"${chassis_type}\","
-        echo "    \"manufacturer\": \"${chassis_manufacturer}\","
-        echo "    \"version\": \"${chassis_version}\""
+        echo "    \"manufacturer\": \"${CHASSIS_MANUFACTURER}\","
+        echo "    \"version\": \"${CHASSIS_VERSION}\""
         echo "  },"
         
         # CPU Information

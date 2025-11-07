@@ -140,14 +140,9 @@ collect_tec_info() {
         fi
         
         # Get identifiers for expandability lookup
-        local baseboard_version_type2=$(sudo dmidecode --type 1 2>/dev/null | grep "Version:" | cut -d: -f2 | xargs)
         local lookup_identifier=""
-        if [ -n "$product_name" ]; then
-            lookup_identifier="$product_name"
-        elif [ -n "$version" ]; then
+        if [ -n "$version" ]; then
             lookup_identifier="$version"
-        elif [ -n "$baseboard_version_type2" ]; then
-            lookup_identifier="$baseboard_version_type2"
         fi
         
         # Look up expandability score from lookup file using baseboard version

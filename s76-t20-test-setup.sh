@@ -922,12 +922,14 @@ collect_tec_info() {
             local type=$(echo "$current_dimm" | grep "^[[:space:]]*Type:" | head -1 | cut -d: -f2 | xargs)
             local form_factor=$(echo "$current_dimm" | grep "Form Factor:" | cut -d: -f2 | xargs)
             local locator=$(echo "$current_dimm" | grep "Locator:" | head -1 | cut -d: -f2 | xargs)
+            local bank_locator=$(echo "$current_dimm" | grep "Bank Locator:" | head -1 | cut -d: -f2 | xargs)
             local total_width=$(echo "$current_dimm" | grep "Total Width:" | cut -d: -f2 | xargs)
             local data_width=$(echo "$current_dimm" | grep "Data Width:" | cut -d: -f2 | xargs)
             
             echo "      {"
             echo -n "        \"size\": \"${size:-}\""
             [ -n "$locator" ] && echo "," && echo -n "        \"locator\": \"${locator}\""
+            [ -n "$bank_locator" ] && echo "," && echo -n "        \"bank_locator\": \"${bank_locator}\""
             [ -n "$speed" ] && echo "," && echo -n "        \"speed\": \"${speed}\""
             [ -n "$type" ] && echo "," && echo -n "        \"type\": \"${type}\""
             [ -n "$form_factor" ] && echo "," && echo -n "        \"form_factor\": \"${form_factor}\""

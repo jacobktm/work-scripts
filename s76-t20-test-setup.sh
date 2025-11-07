@@ -118,11 +118,9 @@ collect_tec_info() {
         local manufacturer=$(sudo dmidecode --type 1 | grep "Manufacturer:" | cut -d: -f2 | xargs)
         local product_name=$(sudo dmidecode --type 1 | grep "Product Name:" | cut -d: -f2 | xargs)
         local version=$(sudo dmidecode --type 1 | grep "Version:" | cut -d: -f2 | xargs)
-        local serial=$(sudo dmidecode --type 1 | grep "Serial Number:" | cut -d: -f2 | xargs)
         echo "    \"manufacturer\": \"${manufacturer}\","
         echo "    \"product_name\": \"${product_name}\","
         echo "    \"version\": \"${version}\","
-        echo "    \"serial_number\": \"${serial}\","
         
         # BIOS Information
         local bios_vendor=$(sudo dmidecode --type 0 | grep "Vendor:" | cut -d: -f2 | xargs)
@@ -176,18 +174,7 @@ collect_tec_info() {
                     fi
                 fi
             fi
-            
-            # If not found, try product name as fallback
-            if [ -z "$expandability_score" ] && [ -n "$product_name" ]; then
-                lookup_key=$(echo "$product_name" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9-]//g')
-                if [ -n "$lookup_key" ]; then
-                    lookup_result=$(jq -r ".[\"$lookup_key\"] // empty" "$lookup_file" 2>/dev/null)
-                    if [ -n "$lookup_result" ] && [ "$lookup_result" != "null" ] && [[ "$lookup_result" =~ ^[0-9]+$ ]]; then
-                        expandability_score="$lookup_result"
-                    fi
-                fi
-            fi
-        fi
+        fi    
         
         # If notebook has an expandability score, it must be a mobile gaming system
         if [ -n "$expandability_score" ] && [ "$is_notebook" = "true" ]; then
@@ -252,6 +239,7 @@ collect_tec_info() {
                 echo "" >> "$es_response_file"
                 echo "Battery Capacity: ${battery_capacity_wh} Wh" >> "$es_response_file"
                 echo "Has Discrete GPU: ${has_discrete_gpu}" >> "$es_response_file"
+                echo "System Memory (GB): ${total_memory_gb_numeric:-unknown}" >> "$es_response_file"
                 
                 # Check battery capacity
                 local battery_check_passed="false"
@@ -271,8 +259,19 @@ collect_tec_info() {
                     echo "Discrete GPU check: FAILED" >> "$es_response_file"
                 fi
                 
+                # Check system memory capacity (>=16 GB)
+                local memory_check_passed="false"
+                if [ -n "$total_memory_gb_numeric" ] && [ "$(echo "$total_memory_gb_numeric >= 16" | bc 2>/dev/null || echo "0")" = "1" ]; then
+                    memory_check_passed="true"
+                    echo "System memory check: PASSED (≥16GB)" >> "$es_response_file"
+                elif [ -n "$total_memory_gb_numeric" ]; then
+                    echo "System memory check: FAILED (<16GB)" >> "$es_response_file"
+                else
+                    echo "System memory check: UNKNOWN" >> "$es_response_file"
+                fi
+                
                 # System can be mobile gaming only if both checks pass
-                if [ "$battery_check_passed" = "true" ] && [ "$gpu_check_passed" = "true" ]; then
+                if [ "$battery_check_passed" = "true" ] && [ "$gpu_check_passed" = "true" ] && [ "$memory_check_passed" = "true" ]; then
                     can_be_mobile_gaming="true"
                 else
                     local disqualification_reasons=()
@@ -281,6 +280,9 @@ collect_tec_info() {
                     fi
                     if [ "$gpu_check_passed" != "true" ]; then
                         disqualification_reasons+=("no discrete GPU")
+                    fi
+                    if [ "$memory_check_passed" != "true" ]; then
+                        disqualification_reasons+=("system memory below 16GB")
                     fi
                     echo "System cannot qualify as mobile gaming system due to: $(IFS=', '; echo "${disqualification_reasons[*]}")" >> "$es_response_file"
                 fi
@@ -294,6 +296,7 @@ collect_tec_info() {
                     echo "" >&2
                     echo "System: ${product_name} (${lookup_identifier})" >&2
                     echo "Battery Capacity: ${battery_capacity_wh} Wh" >&2
+                    echo "System Memory (GB): ${total_memory_gb_numeric:-unknown}" >&2
                     echo "" >&2
                     echo "A mobile gaming system is defined as a notebook computer that" >&2
                     echo "meets ALL of the following requirements:" >&2
@@ -327,6 +330,13 @@ collect_tec_info() {
                             disqualification_msg="${disqualification_msg} and no discrete GPU detected"
                         else
                             disqualification_msg="No discrete GPU detected"
+                        fi
+                    fi
+                    if [ "$memory_check_passed" != "true" ]; then
+                        if [ -n "$disqualification_msg" ]; then
+                            disqualification_msg="${disqualification_msg} and system memory below 16GB"
+                        else
+                            disqualification_msg="System memory below 16GB"
                         fi
                     fi
                     echo "System disqualified: ${disqualification_msg}" >&2
@@ -1157,6 +1167,10 @@ collect_tec_info() {
         local chassis_type_lower=$(echo "$chassis_type" | tr '[:upper:]' '[:lower:]')
         local product_lower=$(echo "$product_name" | tr '[:upper:]' '[:lower:]')
         local version_lower=$(echo "$version" | tr '[:upper:]' '[:lower:]')
+        local is_portable_all_in_one="false"
+        if [[ "$chassis_type_lower" == "portable" ]] || [[ "$chassis_type_lower" == portable* ]] || [[ "$chassis_type_lower" == "portable all in one" ]] || [[ "$product_lower" == meer* ]] || [[ "$version_lower" == meer* ]]; then
+            is_portable_all_in_one="true"
+        fi
 
         if [ -n "$psu_model_effective" ]; then
             has_internal_psu="false"

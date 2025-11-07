@@ -19,6 +19,7 @@ battery_device=$(ls /sys/class/power_supply/ 2>/dev/null | grep -E '^BAT[0-9]' |
 DMI_TYPE0=$(sudo dmidecode --type 0 2>/dev/null)
 DMI_TYPE1=$(sudo dmidecode --type 1 2>/dev/null)
 DMI_TYPE2=$(sudo dmidecode --type 2 2>/dev/null)
+DMI_TYPE17=$(sudo dmidecode --type 17 2>/dev/null)
 DMI_CHASSIS=$(sudo dmidecode --type chassis 2>/dev/null)
 SYSTEM_MANUFACTURER=$(echo "$DMI_TYPE1" | grep "Manufacturer:" | head -1 | cut -d: -f2 | xargs)
 PRODUCT_NAME=$(echo "$DMI_TYPE1" | grep "Product Name:" | head -1 | cut -d: -f2 | xargs)
@@ -96,7 +97,7 @@ for device in $(nmcli device | awk '$2=="ethernet" {print $1}'); do
     ethtool --show-eee $device >> EEE-info.txt
     echo "" >> EEE-info.txt
 done
-sudo dmidecode --type 17 > mem-info.txt
+echo "$DMI_TYPE17" > mem-info.txt
 
 # Function to collect system information for TEC score calculation
 collect_tec_info() {
@@ -768,7 +769,7 @@ collect_tec_info() {
                 fi
             fi
             # Check for ECC memory (typically indicates workstation/server)
-            if sudo dmidecode --type 17 2>/dev/null | grep -qi "Error Correction Type.*ECC\|Single-bit ECC"; then
+            if echo "$DMI_TYPE17" | grep -qi "Error Correction Type.*ECC\|Single-bit ECC"; then
                 system_classification="Workstation"
             fi
         fi
@@ -863,7 +864,7 @@ collect_tec_info() {
         echo "    \"dimms\": ["
         local first_dimm=true
         # Parse each DIMM block - split by Handle
-        local dimm_data=$(sudo dmidecode --type 17)
+        local dimm_data="$DMI_TYPE17"
         local current_dimm=""
         while IFS= read -r line; do
             if [[ "$line" =~ ^Handle ]]; then
@@ -882,12 +883,14 @@ collect_tec_info() {
                     local type=$(echo "$current_dimm" | grep "^[[:space:]]*Type:" | head -1 | cut -d: -f2 | xargs)
                     local form_factor=$(echo "$current_dimm" | grep "Form Factor:" | cut -d: -f2 | xargs)
                     local locator=$(echo "$current_dimm" | grep "Locator:" | head -1 | cut -d: -f2 | xargs)
+                    local bank_locator=$(echo "$current_dimm" | grep "Bank Locator:" | head -1 | cut -d: -f2 | xargs)
                     local total_width=$(echo "$current_dimm" | grep "Total Width:" | cut -d: -f2 | xargs)
                     local data_width=$(echo "$current_dimm" | grep "Data Width:" | cut -d: -f2 | xargs)
                     
                     echo "      {"
                     echo -n "        \"size\": \"${size:-}\""
                     [ -n "$locator" ] && echo "," && echo -n "        \"locator\": \"${locator}\""
+                    [ -n "$bank_locator" ] && echo "," && echo -n "        \"bank_locator\": \"${bank_locator}\""
                     [ -n "$speed" ] && echo "," && echo -n "        \"speed\": \"${speed}\""
                     [ -n "$type" ] && echo "," && echo -n "        \"type\": \"${type}\""
                     [ -n "$form_factor" ] && echo "," && echo -n "        \"form_factor\": \"${form_factor}\""
@@ -1897,7 +1900,7 @@ fi
 
 # Check if the system is a laptop by examining the chassis type
 echo "Checking if the system is a laptop..."
-chassis_type=$(sudo dmidecode --type chassis | grep "Type:" | awk '{print $2}')
+chassis_type="$CHASSIS_TYPE"
 
 if [[ "$chassis_type" == "Notebook" || "$chassis_type" == "Laptop" ]]; then
     echo "System is a laptop. Proceeding with setting the panel brightness."

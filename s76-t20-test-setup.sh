@@ -79,7 +79,11 @@ collect_tec_info() {
     local output_file="t20-eut.txt"
     local json_file="t20-eut.json"
     local es_response_file=""  # Will be set if expandability calculation is performed
-    # battery_capacity_wh should be set from the global scope (from check at start of script)
+    local battery_capacity_wh_numeric=""
+    local total_memory_gb_numeric=""
+    local gpu_mem_bandwidth_numeric=""
+    local psu_wattage_numeric=""
+    local has_discrete_gpu_detected="false"
     
     echo "Collecting system information for TEC score calculation..."
     echo ""
@@ -222,6 +226,7 @@ collect_tec_info() {
                 # If not set (shouldn't happen for notebooks), prompt now
                 if [ -z "$battery_capacity_wh" ]; then
                     read -p "Enter battery capacity in Wh: " battery_capacity_wh
+                    [ -n "$battery_capacity_wh" ] && battery_capacity_wh_numeric=$(echo "$battery_capacity_wh" | tr -dc '0-9.')
                 fi
                 
                 local can_be_mobile_gaming="false"
@@ -231,12 +236,13 @@ collect_tec_info() {
                 local min_battery_capacity=75
                 
                 # Check for discrete GPU (NVIDIA or AMD)
-                local has_discrete_gpu="false"
-                if command -v nvidia-smi &> /dev/null && nvidia-smi &>/dev/null 2>&1; then
+                local has_discrete_gpu="$has_discrete_gpu_detected"
+                if command -v nvidia-smi &> /dev/null && nvidia-smi &>/dev/null 2>/dev/null; then
                     # Check if NVIDIA GPU is present and not just integrated
                     local gpu_name=$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | head -1 | xargs)
                     if [ -n "$gpu_name" ] && [[ ! "$gpu_name" =~ "Intel|integrated" ]]; then
                         has_discrete_gpu="true"
+                        has_discrete_gpu_detected="true"
                     fi
                 fi
                 
@@ -244,6 +250,7 @@ collect_tec_info() {
                 if [ "$has_discrete_gpu" != "true" ]; then
                     if lspci 2>/dev/null | grep -qi "vga.*amd\|display.*amd\|radeon"; then
                         has_discrete_gpu="true"
+                        has_discrete_gpu_detected="true"
                     fi
                 fi
                 
@@ -318,7 +325,7 @@ collect_tec_info() {
                     echo "" >&2
                     local disqualification_msg=""
                     if [ "$battery_check_passed" != "true" ]; then
-                        disqualification_msg="Battery capacity (${battery_capacity_wh} Wh) is below the minimum threshold (${min_battery_capacity} Wh)"
+                        disqualification_msg="Battery capacity (${battery_capacity_wh} Wh) is below the minimum threshold (${min_battery_capacity}Wh)"
                     fi
                     if [ "$gpu_check_passed" != "true" ]; then
                         if [ -n "$disqualification_msg" ]; then
@@ -984,6 +991,7 @@ collect_tec_info() {
         local total_capacity_gb=""
         if [ $total_capacity_mb -gt 0 ]; then
             total_capacity_gb=$(echo "scale=2; ${total_capacity_mb} / 1024" | bc 2>/dev/null || echo "$((total_capacity_mb / 1024))")
+            total_memory_gb_numeric=$(echo "$total_capacity_gb" | tr -dc '0-9.')
         fi
         
         local total_memory=$(free -h | grep "Mem:" | awk '{print $2}')
@@ -1116,7 +1124,7 @@ collect_tec_info() {
             # Try alternative method: calculate from maximum memory clock if we have bus width
             if [ -z "$gpu_mem_bandwidth" ] && [ -n "$bus_width_num" ]; then
                 # Get maximum memory clock from nvidia-smi (use max for theoretical bandwidth)
-                local gpu_mem_clock_max=$(nvidia-smi --query-gpu=clocks.max.mem --format=csv,noheader 2>/dev/null | head -1 | grep -oE '[0-9]+' || echo "")
+                local gpu_mem_clock_max=$(nvidia-smi --query-gpu=clocks.max.memory --format=csv,noheader 2>/dev/null | head -1 | xargs)
                 
                 if [ -n "$gpu_mem_clock_max" ]; then
                     # Memory clock is in MHz, need to multiply by 2 for DDR (double data rate)
@@ -1185,6 +1193,10 @@ collect_tec_info() {
         fi
         
         echo "    \"has_internal_psu\": ${has_internal_psu},"
+        if [ -n "$psu_wattage" ]; then
+            psu_wattage_numeric=$(echo "$psu_wattage" | tr -dc '0-9.')
+        fi
+
         [ -n "$psu_manufacturer" ] && echo "    \"manufacturer\": \"${psu_manufacturer}\","
         if [ -n "$psu_model_effective" ]; then
             echo "    \"model\": \"${psu_model_effective}\"," 
@@ -1263,6 +1275,7 @@ collect_tec_info() {
                 capacity_wh_printed="$capacity_wh"
             fi
             echo "    \"capacity_full_wh_printed\": \"${capacity_wh_printed}\","
+            battery_capacity_wh_numeric=$(echo "$capacity_wh" | tr -dc '0-9.')
         else
             echo "    \"capacity_full_wh_printed\": null,"
         fi

@@ -140,7 +140,7 @@ collect_tec_info() {
         fi
         
         # Get identifiers for expandability lookup
-        local baseboard_version_type2=$(sudo dmidecode --type 2 2>/dev/null | grep "Version:" | cut -d: -f2 | xargs)
+        local baseboard_version_type2=$(sudo dmidecode --type 1 2>/dev/null | grep "Version:" | cut -d: -f2 | xargs)
         local lookup_identifier=""
         if [ -n "$product_name" ]; then
             lookup_identifier="$product_name"
@@ -192,11 +192,20 @@ collect_tec_info() {
                     fi
                 fi
             fi
+        else
+            echo "DEBUG [Expandability]: Lookup file '${lookup_file}' not accessible or jq missing" >&2
+        fi
+        
+        if [ -z "$expandability_score" ]; then
+            echo "DEBUG [Expandability]: Expandability score not found after lookup attempts" >&2
+        else
+            echo "DEBUG [Expandability]: Final expandability score=${expandability_score}" >&2
         fi
         
         # If notebook has an expandability score, it must be a mobile gaming system
         if [ -n "$expandability_score" ] && [ "$is_notebook" = "true" ]; then
             mobile_gaming_system="true"
+            echo "DEBUG [Mobile Gaming]: Expandability score present for notebook; forcing mobile_gaming_system=true" >&2
         fi
         
         # If expandability score not found, prompt user
@@ -303,10 +312,10 @@ collect_tec_info() {
                     echo "A mobile gaming system is defined as a notebook computer that" >&2
                     echo "meets ALL of the following requirements:" >&2
                     echo "" >&2
-                    echo "  1. Has a discrete GPU (not integrated graphics only)" >&2
-                    echo "  2. GPU has a TGP (Total Graphics Power) of 75W or greater" >&2
-                    echo "  3. GPU memory bandwidth of 256 GB/s or greater" >&2
-                    echo "  4. System has a 16:9 or 16:10 aspect ratio display" >&2
+                    echo "  1. Discrete GPU: Frame buffer bandwidth of at least 128 gigabytes/second." >&2
+                    echo "  2. System memory: At least 16 gigabytes." >&2
+                    echo "  3. External power supply: A nameplate output power of at least 150 W." >&2
+                    echo "  4. Total battery capacity: At least \(75\) Wh." >&2
                     echo "" >&2
                     echo "═══════════════════════════════════════════════════════════════" >&2
                     read -p "Is this system a mobile gaming system? (y/n): " is_mobile_gaming

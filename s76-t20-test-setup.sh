@@ -187,20 +187,11 @@ collect_tec_info() {
                     fi
                 fi
             fi
-        else
-            echo "DEBUG [Expandability]: Lookup file '${lookup_file}' not accessible or jq missing" >&2
-        fi
-        
-        if [ -z "$expandability_score" ]; then
-            echo "DEBUG [Expandability]: Expandability score not found after lookup attempts" >&2
-        else
-            echo "DEBUG [Expandability]: Final expandability score=${expandability_score}" >&2
         fi
         
         # If notebook has an expandability score, it must be a mobile gaming system
         if [ -n "$expandability_score" ] && [ "$is_notebook" = "true" ]; then
             mobile_gaming_system="true"
-            echo "DEBUG [Mobile Gaming]: Expandability score present for notebook; forcing mobile_gaming_system=true" >&2
         fi
         
         # If expandability score not found, prompt user
@@ -1159,58 +1150,30 @@ collect_tec_info() {
         fi
         echo "  },"
         
-        # Power Supply Unit Information
+        # Power Supply Unit Information (manual input only)
         echo "  \"power_supply\": {"
-        local psu_manufacturer=$(sudo dmidecode --type 39 2>/dev/null | grep "Manufacturer:" | head -1 | cut -d: -f2 | xargs || echo "")
-        local psu_model_detected=$(sudo dmidecode --type 39 2>/dev/null | grep "Name:" | head -1 | cut -d: -f2 | xargs || echo "")
-        local psu_serial=$(sudo dmidecode --type 39 2>/dev/null | grep "Serial Number:" | head -1 | cut -d: -f2 | xargs || echo "")
-        local psu_wattage=$(sudo dmidecode --type 39 2>/dev/null | grep -i "Maximum Power\|Max Power\|Rated Power" | head -1 | grep -oE '[0-9]+' | head -1 || echo "")
-        
-        # Try alternative methods if dmidecode type 39 doesn't work
-        if [ -z "$psu_manufacturer" ]; then
-            # Check sysfs for power supply info (for AC adapters on laptops)
-            local ac_adapter=$(ls /sys/class/power_supply/ | grep -E '^AC|^ADP' | head -1)
-            if [ -n "$ac_adapter" ]; then
-                local ac_path="/sys/class/power_supply/${ac_adapter}"
-                psu_model_detected=$(cat "${ac_path}/model_name" 2>/dev/null | xargs || echo "")
-                psu_manufacturer=$(cat "${ac_path}/manufacturer" 2>/dev/null | xargs || echo "")
-                local ac_wattage=$(cat "${ac_path}/power_now" 2>/dev/null || echo "")
-                if [ -n "$ac_wattage" ] && [ -z "$psu_wattage" ]; then
-                    # Convert from microWatts to Watts
-                    psu_wattage=$(echo "scale=0; ${ac_wattage} / 1000000" | bc 2>/dev/null || echo "")
-                fi
-            fi
-        fi
-        
-        # Check if system has internal PSU (desktop/workstation)
-        local has_internal_psu="false"
         local psu_model_effective="$psu_model_manual"
-        if [ -z "$psu_model_effective" ]; then
-            psu_model_effective="$psu_model_detected"
+        local has_internal_psu="true"
+        local chassis_type_lower=$(echo "$chassis_type" | tr '[:upper:]' '[:lower:]')
+        local product_lower=$(echo "$product_name" | tr '[:upper:]' '[:lower:]')
+        local version_lower=$(echo "$version" | tr '[:upper:]' '[:lower:]')
+
+        if [ -n "$psu_model_effective" ]; then
+            has_internal_psu="false"
         fi
-        
-        if [ -n "$psu_manufacturer" ] || [ -n "$psu_model_effective" ]; then
-            has_internal_psu="true"
-        elif [[ "$chassis_type" != "Notebook" && "$chassis_type" != "Laptop" ]]; then
-            # Desktop/workstation systems typically have internal PSUs
-            has_internal_psu="true"
-        fi
-        
-        echo "    \"has_internal_psu\": ${has_internal_psu},"
-        if [ -n "$psu_wattage" ]; then
-            psu_wattage_numeric=$(echo "$psu_wattage" | tr -dc '0-9.')
+        if [ "$is_notebook" = "true" ] || [[ "$chassis_type_lower" == portable* ]] || [[ "$chassis_type_lower" == "portable all in one" ]] || [[ "$product_lower" == meer* ]] || [[ "$version_lower" == meer* ]] || [ "$mobile_gaming_system" = "true" ]; then
+            has_internal_psu="false"
         fi
 
-        [ -n "$psu_manufacturer" ] && echo "    \"manufacturer\": \"${psu_manufacturer}\","
+        echo "    \"has_internal_psu\": ${has_internal_psu},"
+        echo "    \"manufacturer\": null,"
         if [ -n "$psu_model_effective" ]; then
             echo "    \"model\": \"${psu_model_effective}\"," 
         else
             echo "    \"model\": null,"
         fi
-        [ -n "$psu_model_manual" ] && echo "    \"model_manual\": \"${psu_model_manual}\"," 
-        [ -n "$psu_model_detected" ] && echo "    \"model_detected\": \"${psu_model_detected}\"," 
-        [ -n "$psu_serial" ] && echo "    \"serial_number\": \"${psu_serial}\","
-        [ -n "$psu_wattage" ] && echo "    \"wattage\": ${psu_wattage},"
+        echo "    \"serial_number\": null,"
+        echo "    \"wattage\": null,"
         echo "    \"efficiency_rating\": null"
         echo "  },"
         
@@ -1765,8 +1728,6 @@ validate_tec_info() {
             "  Has Internal PSU: " + ((.power_supply.has_internal_psu // "null") | tostring),
             "  Manufacturer: " + (.power_supply.manufacturer // "null"),
             "  Model: " + (.power_supply.model // "null"),
-            "  Model (Manual): " + (.power_supply.model_manual // "null"),
-            "  Model (Detected): " + (.power_supply.model_detected // "null"),
             "  Wattage (W): " + ((.power_supply.wattage // "null") | tostring),
             ""
         ' "$json_file" >&2
@@ -1821,9 +1782,9 @@ validate_tec_info() {
                 5)
                     read -p "Enter new Power Supply Model (or 'null' to clear): " new_value >&2
                     if [ -z "$new_value" ] || [ "$new_value" = "null" ]; then
-                        jq ".power_supply.model = null | .power_supply.model_manual = null" "$json_file" > "${json_file}.tmp" && mv "${json_file}.tmp" "$json_file"
+                        jq ".power_supply.model = null" "$json_file" > "${json_file}.tmp" && mv "${json_file}.tmp" "$json_file"
                     else
-                        jq ".power_supply.model = \"$new_value\" | .power_supply.model_manual = \"$new_value\"" "$json_file" > "${json_file}.tmp" && mv "${json_file}.tmp" "$json_file"
+                        jq ".power_supply.model = \"$new_value\"" "$json_file" > "${json_file}.tmp" && mv "${json_file}.tmp" "$json_file"
                     fi
                     jq '.' "$json_file" > "$output_file" 2>/dev/null || cat "$json_file" > "$output_file"
                     ;;

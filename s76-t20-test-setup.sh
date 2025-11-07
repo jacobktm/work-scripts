@@ -88,6 +88,10 @@ collect_tec_info() {
     read -p "Enter motherboard model number (or press Enter to skip): " motherboard_model_number
     echo ""
     
+    # Prompt for power supply model number
+    read -p "Enter power supply model number (or press Enter to skip): " psu_model_manual
+    echo ""
+    
     # Battery capacity should already be set from the check at the start of the script
     # If not set and this is a notebook, prompt now (shouldn't happen normally)
     local chassis_type=$(sudo dmidecode --type chassis | grep "Type:" | awk '{print $2}')
@@ -131,8 +135,16 @@ collect_tec_info() {
             is_notebook="true"
         fi
         
-        # Get baseboard version for expandability lookup
-        local baseboard_version=$(sudo dmidecode --type 2 2>/dev/null | grep "Version:" | cut -d: -f2 | xargs)
+        # Get identifiers for expandability lookup
+        local baseboard_version_type2=$(sudo dmidecode --type 2 2>/dev/null | grep "Version:" | cut -d: -f2 | xargs)
+        local lookup_identifier=""
+        if [ -n "$product_name" ]; then
+            lookup_identifier="$product_name"
+        elif [ -n "$version" ]; then
+            lookup_identifier="$version"
+        elif [ -n "$baseboard_version_type2" ]; then
+            lookup_identifier="$baseboard_version_type2"
+        fi
         
         # Look up expandability score from lookup file using baseboard version
         local expandability_score=""
@@ -155,8 +167,8 @@ collect_tec_info() {
             local lookup_result=""
             
             # First try baseboard version
-            if [ -n "$baseboard_version" ]; then
-                lookup_key=$(echo "$baseboard_version" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9-]//g')
+            if [ -n "$lookup_identifier" ]; then
+                lookup_key=$(echo "$lookup_identifier" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9-]//g')
                 if [ -n "$lookup_key" ]; then
                     lookup_result=$(jq -r ".[\"$lookup_key\"] // empty" "$lookup_file" 2>/dev/null)
                     # Only use if it's a valid number (not "null" string or empty)
@@ -195,7 +207,10 @@ collect_tec_info() {
                 echo "Expandability Score Calculation Responses"
                 echo "========================================"
                 echo "System: ${product_name}"
-                echo "Baseboard Version: ${baseboard_version}"
+                echo "Expandability Lookup Identifier: ${lookup_identifier}"
+                if [ -n "$baseboard_version_type2" ]; then
+                    echo "Baseboard Version (Type 2): ${baseboard_version_type2}"
+                fi
                 echo "Date: $(date -Iseconds)"
                 echo ""
             } > "$es_response_file"
@@ -275,7 +290,7 @@ collect_tec_info() {
                     echo "MOBILE GAMING SYSTEM DETERMINATION" >&2
                     echo "═══════════════════════════════════════════════════════════════" >&2
                     echo "" >&2
-                    echo "System: ${product_name} (${baseboard_version})" >&2
+                    echo "System: ${product_name} (${lookup_identifier})" >&2
                     echo "Battery Capacity: ${battery_capacity_wh} Wh" >&2
                     echo "" >&2
                     echo "A mobile gaming system is defined as a notebook computer that" >&2
@@ -328,7 +343,7 @@ collect_tec_info() {
                 echo "EXPANDABILITY SCORE CALCULATION" >&2
                 echo "═══════════════════════════════════════════════════════════════" >&2
                 echo "" >&2
-                echo "System: ${product_name} (${baseboard_version})" >&2
+                echo "System: ${product_name} (${lookup_identifier})" >&2
                 echo "" >&2
                 echo "Please enter the count for each interface on the mainboard:" >&2
                 echo "" >&2
@@ -691,8 +706,8 @@ collect_tec_info() {
                 echo "Calculation Confirmed: Yes" >> "$es_response_file"
                 
                 # Offer to save to lookup file
-                if [ -n "$expandability_score" ] && [ -n "$baseboard_version" ] && [ -f "$lookup_file" ] && command -v jq &> /dev/null; then
-                    local lookup_key=$(echo "$baseboard_version" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9-]//g')
+                if [ -n "$expandability_score" ] && [ -n "$lookup_identifier" ] && [ -f "$lookup_file" ] && command -v jq &> /dev/null; then
+                    local lookup_key=$(echo "$lookup_identifier" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9-]//g')
                     if [ -n "$lookup_key" ]; then
                         read -p "Save this score to lookup file for future use? (y/n): " save_score
                         if [[ "$save_score" =~ ^[Yy] ]]; then
@@ -713,7 +728,16 @@ collect_tec_info() {
         local baseboard_product=$(sudo dmidecode --type 2 2>/dev/null | grep "Product Name:" | cut -d: -f2 | xargs)
         echo "    \"baseboard_manufacturer\": \"${baseboard_manufacturer}\","
         echo "    \"baseboard_product\": \"${baseboard_product}\","
-        echo "    \"baseboard_version\": \"${baseboard_version}\","
+        if [ -n "$baseboard_version_type2" ]; then
+            echo "    \"baseboard_version\": \"${baseboard_version_type2}\"," 
+        else
+            echo "    \"baseboard_version\": null,"
+        fi
+        if [ -n "$lookup_identifier" ]; then
+            echo "    \"expandability_lookup_identifier\": \"${lookup_identifier}\"," 
+        else
+            echo "    \"expandability_lookup_identifier\": null,"
+        fi
         if [ -n "$motherboard_model_number" ]; then
             echo "    \"motherboard_model_number\": \"${motherboard_model_number}\","
         else
@@ -1126,7 +1150,7 @@ collect_tec_info() {
         # Power Supply Unit Information
         echo "  \"power_supply\": {"
         local psu_manufacturer=$(sudo dmidecode --type 39 2>/dev/null | grep "Manufacturer:" | head -1 | cut -d: -f2 | xargs || echo "")
-        local psu_model=$(sudo dmidecode --type 39 2>/dev/null | grep "Name:" | head -1 | cut -d: -f2 | xargs || echo "")
+        local psu_model_detected=$(sudo dmidecode --type 39 2>/dev/null | grep "Name:" | head -1 | cut -d: -f2 | xargs || echo "")
         local psu_serial=$(sudo dmidecode --type 39 2>/dev/null | grep "Serial Number:" | head -1 | cut -d: -f2 | xargs || echo "")
         local psu_wattage=$(sudo dmidecode --type 39 2>/dev/null | grep -i "Maximum Power\|Max Power\|Rated Power" | head -1 | grep -oE '[0-9]+' | head -1 || echo "")
         
@@ -1136,7 +1160,7 @@ collect_tec_info() {
             local ac_adapter=$(ls /sys/class/power_supply/ | grep -E '^AC|^ADP' | head -1)
             if [ -n "$ac_adapter" ]; then
                 local ac_path="/sys/class/power_supply/${ac_adapter}"
-                psu_model=$(cat "${ac_path}/model_name" 2>/dev/null | xargs || echo "")
+                psu_model_detected=$(cat "${ac_path}/model_name" 2>/dev/null | xargs || echo "")
                 psu_manufacturer=$(cat "${ac_path}/manufacturer" 2>/dev/null | xargs || echo "")
                 local ac_wattage=$(cat "${ac_path}/power_now" 2>/dev/null || echo "")
                 if [ -n "$ac_wattage" ] && [ -z "$psu_wattage" ]; then
@@ -1148,7 +1172,12 @@ collect_tec_info() {
         
         # Check if system has internal PSU (desktop/workstation)
         local has_internal_psu="false"
-        if [ -n "$psu_manufacturer" ] || [ -n "$psu_model" ]; then
+        local psu_model_effective="$psu_model_manual"
+        if [ -z "$psu_model_effective" ]; then
+            psu_model_effective="$psu_model_detected"
+        fi
+        
+        if [ -n "$psu_manufacturer" ] || [ -n "$psu_model_effective" ]; then
             has_internal_psu="true"
         elif [[ "$chassis_type" != "Notebook" && "$chassis_type" != "Laptop" ]]; then
             # Desktop/workstation systems typically have internal PSUs
@@ -1157,7 +1186,13 @@ collect_tec_info() {
         
         echo "    \"has_internal_psu\": ${has_internal_psu},"
         [ -n "$psu_manufacturer" ] && echo "    \"manufacturer\": \"${psu_manufacturer}\","
-        [ -n "$psu_model" ] && echo "    \"model\": \"${psu_model}\","
+        if [ -n "$psu_model_effective" ]; then
+            echo "    \"model\": \"${psu_model_effective}\"," 
+        else
+            echo "    \"model\": null,"
+        fi
+        [ -n "$psu_model_manual" ] && echo "    \"model_manual\": \"${psu_model_manual}\"," 
+        [ -n "$psu_model_detected" ] && echo "    \"model_detected\": \"${psu_model_detected}\"," 
         [ -n "$psu_serial" ] && echo "    \"serial_number\": \"${psu_serial}\","
         [ -n "$psu_wattage" ] && echo "    \"wattage\": ${psu_wattage},"
         echo "    \"efficiency_rating\": null"
@@ -1390,20 +1425,30 @@ collect_tec_info() {
             fi
             
             local color_gamut="${display_gamuts[$display_name]:-null}"
-            
+            local display_lines=()
+            display_lines+=("\"name\": \"${display_name}\"")
+            display_lines+=("\"resolution\": \"${resolution}\"")
+            display_lines+=("\"width_px\": ${width:-null}")
+            display_lines+=("\"height_px\": ${height:-null}")
+            display_lines+=("\"megapixels\": ${megapixels:-null}")
+            display_lines+=("\"width_mm\": ${width_mm:-null}")
+            display_lines+=("\"height_mm\": ${height_mm:-null}")
+            display_lines+=("\"width_inches\": ${width_inches:-null}")
+            display_lines+=("\"height_inches\": ${height_inches:-null}")
+            display_lines+=("\"diagonal_inches\": ${diagonal_inches:-null}")
+            display_lines+=("\"area_square_inches\": ${area_square_inches:-null}")
+            display_lines+=("\"color_gamut\": \"${color_gamut}\"")
             echo "    {"
-            echo -n "      \"name\": \"${display_name}\""
-            echo "," && echo "      \"resolution\": \"${resolution}\""
-            [ -n "$width" ] && echo "," && echo -n "      \"width_px\": ${width}"
-            [ -n "$height" ] && echo "," && echo -n "      \"height_px\": ${height}"
-            [ -n "$megapixels" ] && echo "," && echo -n "      \"megapixels\": ${megapixels}"
-            [ -n "$width_mm" ] && echo "," && echo -n "      \"width_mm\": ${width_mm}"
-            [ -n "$height_mm" ] && echo "," && echo -n "      \"height_mm\": ${height_mm}"
-            [ -n "$width_inches" ] && echo "," && echo -n "      \"width_inches\": ${width_inches}"
-            [ -n "$height_inches" ] && echo "," && echo -n "      \"height_inches\": ${height_inches}"
-            [ -n "$diagonal_inches" ] && echo "," && echo -n "      \"diagonal_inches\": ${diagonal_inches}"
-            [ -n "$area_square_inches" ] && echo "," && echo -n "      \"area_square_inches\": ${area_square_inches}"
-            echo "," && echo "      \"color_gamut\": \"${color_gamut}\""
+            local idx=0
+            local total=${#display_lines[@]}
+            for line in "${display_lines[@]}"; do
+                idx=$((idx + 1))
+                if [ $idx -lt $total ]; then
+                    echo "      ${line},"
+                else
+                    echo "      ${line}"
+                fi
+            done
             echo -n "    }"
         done
         echo ""
@@ -1658,6 +1703,7 @@ validate_tec_info() {
             "  Baseboard Product: " + (.system.baseboard_product // "null"),
             "  Baseboard Version: " + (.system.baseboard_version // "null"),
             "  Motherboard Model Number: " + (.system.motherboard_model_number // "null"),
+            "  Expandability Lookup Identifier: " + (.system.expandability_lookup_identifier // "null"),
             "",
             "CPU Information:",
             "  Model: " + (.cpu.model // "null"),
@@ -1697,7 +1743,15 @@ validate_tec_info() {
             "  S3 Supported: " + (.sleep_states.s3_supported // "null"),
             "",
             "Expandability Score: " + (if .expandability_score == null then "null" else (.expandability_score | tostring) end),
-            "Mobile Gaming System: " + (if .mobile_gaming_system == null then "null" else (.mobile_gaming_system | tostring) end)
+            "Mobile Gaming System: " + (if .mobile_gaming_system == null then "null" else (.mobile_gaming_system | tostring) end),
+            "Power Supply:",
+            "  Has Internal PSU: " + ((.power_supply.has_internal_psu // "null") | tostring),
+            "  Manufacturer: " + (.power_supply.manufacturer // "null"),
+            "  Model: " + (.power_supply.model // "null"),
+            "  Model (Manual): " + (.power_supply.model_manual // "null"),
+            "  Model (Detected): " + (.power_supply.model_detected // "null"),
+            "  Wattage (W): " + ((.power_supply.wattage // "null") | tostring),
+            ""
         ' "$json_file" >&2
         
         echo "" >&2
@@ -1710,19 +1764,21 @@ validate_tec_info() {
             echo "  1. System Product Name" >&2
             echo "  2. System Manufacturer" >&2
             echo "  3. Baseboard Version" >&2
-            echo "  4. CPU TDP (W)" >&2
-            echo "  5. GPU Model" >&2
-            echo "  6. GPU Memory Bandwidth (GB/s)" >&2
-            echo "  7. Memory Total Capacity (GB)" >&2
-            echo "  8. Memory ECC" >&2
-            echo "  9. Battery Capacity (Wh)" >&2
-            echo "  10. Display Color Gamut" >&2
-            echo "  11. Storage Disk Information" >&2
-            echo "  12. Network Adapter Speed" >&2
-            echo "  13. Expandability Score" >&2
-            echo "  14. Mobile Gaming System" >&2
-            echo "  15. Skip editing" >&2
-            read -p "Enter field number to edit (1-15): " field_num >&2
+            echo "  4. Motherboard Model Number" >&2
+            echo "  5. Power Supply Model" >&2
+            echo "  6. CPU TDP (W)" >&2
+            echo "  7. GPU Model" >&2
+            echo "  8. GPU Memory Bandwidth (GB/s)" >&2
+            echo "  9. Memory Total Capacity (GB)" >&2
+            echo "  10. Memory ECC" >&2
+            echo "  11. Battery Capacity (Wh)" >&2
+            echo "  12. Display Color Gamut" >&2
+            echo "  13. Storage Disk Information" >&2
+            echo "  14. Network Adapter Speed" >&2
+            echo "  15. Expandability Score" >&2
+            echo "  16. Mobile Gaming System" >&2
+            echo "  17. Skip editing" >&2
+            read -p "Enter field number to edit (1-17): " field_num >&2
             
             case "$field_num" in
                 1)
@@ -1741,35 +1797,40 @@ validate_tec_info() {
                     jq '.' "$json_file" > "$output_file" 2>/dev/null || cat "$json_file" > "$output_file"
                     ;;
                 4)
-                    read -p "Enter new Motherboard Model Number (or 'null' to clear): " new_value >&2
-                    if [ -z "$new_value" ] || [ "$new_value" = "null" ]; then
-                        jq ".system.motherboard_model_number = null" "$json_file" > "${json_file}.tmp" && mv "${json_file}.tmp" "$json_file"
-                    else
-                        jq ".system.motherboard_model_number = \"$new_value\"" "$json_file" > "${json_file}.tmp" && mv "${json_file}.tmp" "$json_file"
-                    fi
+                    read -p "Enter new Motherboard Model Number: " new_value >&2
+                    jq ".system.motherboard_model_number = \"$new_value\"" "$json_file" > "${json_file}.tmp" && mv "${json_file}.tmp" "$json_file"
                     jq '.' "$json_file" > "$output_file" 2>/dev/null || cat "$json_file" > "$output_file"
                     ;;
                 5)
+                    read -p "Enter new Power Supply Model (or 'null' to clear): " new_value >&2
+                    if [ -z "$new_value" ] || [ "$new_value" = "null" ]; then
+                        jq ".power_supply.model = null | .power_supply.model_manual = null" "$json_file" > "${json_file}.tmp" && mv "${json_file}.tmp" "$json_file"
+                    else
+                        jq ".power_supply.model = \"$new_value\" | .power_supply.model_manual = \"$new_value\"" "$json_file" > "${json_file}.tmp" && mv "${json_file}.tmp" "$json_file"
+                    fi
+                    jq '.' "$json_file" > "$output_file" 2>/dev/null || cat "$json_file" > "$output_file"
+                    ;;
+                6)
                     read -p "Enter new CPU TDP (W): " new_value >&2
                     jq ".cpu.tdp_w = ($new_value // null)" "$json_file" > "${json_file}.tmp" && mv "${json_file}.tmp" "$json_file"
                     jq '.' "$json_file" > "$output_file" 2>/dev/null || cat "$json_file" > "$output_file"
                     ;;
-                6)
+                7)
                     read -p "Enter new GPU Model: " new_value >&2
                     jq ".gpu.model = \"$new_value\"" "$json_file" > "${json_file}.tmp" && mv "${json_file}.tmp" "$json_file"
                     jq '.' "$json_file" > "$output_file" 2>/dev/null || cat "$json_file" > "$output_file"
                     ;;
-                7)
+                8)
                     read -p "Enter new GPU Memory Bandwidth (GB/s): " new_value >&2
                     jq ".gpu.memory_bandwidth_gbps = ($new_value // null)" "$json_file" > "${json_file}.tmp" && mv "${json_file}.tmp" "$json_file"
                     jq '.' "$json_file" > "$output_file" 2>/dev/null || cat "$json_file" > "$output_file"
                     ;;
-                8)
+                9)
                     read -p "Enter new Memory Total Capacity (GB): " new_value >&2
                     jq ".memory.total_capacity_gb = ($new_value // null)" "$json_file" > "${json_file}.tmp" && mv "${json_file}.tmp" "$json_file"
                     jq '.' "$json_file" > "$output_file" 2>/dev/null || cat "$json_file" > "$output_file"
                     ;;
-                9)
+                10)
                     read -p "Enter new Memory ECC (true/false): " new_value >&2
                     if [[ "$new_value" =~ ^[Tt] ]]; then
                         jq ".memory.ecc = \"true\"" "$json_file" > "${json_file}.tmp" && mv "${json_file}.tmp" "$json_file"
@@ -1778,12 +1839,12 @@ validate_tec_info() {
                     fi
                     jq '.' "$json_file" > "$output_file" 2>/dev/null || cat "$json_file" > "$output_file"
                     ;;
-                10)
+                11)
                     read -p "Enter new Battery Capacity (Wh): " new_value >&2
                     jq ".battery.capacity_full_wh = ($new_value // null)" "$json_file" > "${json_file}.tmp" && mv "${json_file}.tmp" "$json_file"
                     jq '.' "$json_file" > "$output_file" 2>/dev/null || cat "$json_file" > "$output_file"
                     ;;
-                11)
+                12)
                     echo "Available displays:" >&2
                     local idx=0
                     jq -r '.displays[] | "  \(.name)"' "$json_file" >&2
@@ -1792,10 +1853,10 @@ validate_tec_info() {
                     jq "(.displays[] | select(.name == \"$display_name\") | .color_gamut) = \"$new_value\"" "$json_file" > "${json_file}.tmp" && mv "${json_file}.tmp" "$json_file"
                     jq '.' "$json_file" > "$output_file" 2>/dev/null || cat "$json_file" > "$output_file"
                     ;;
-                12)
+                13)
                     echo "Note: Storage disk information editing not yet implemented. Please edit JSON file manually if needed." >&2
                     ;;
-                13)
+                14)
                     echo "Available network adapters:" >&2
                     jq -r '.network_adapters[] | "  \(.name)"' "$json_file" >&2
                     read -p "Enter adapter name to edit: " adapter_name >&2
@@ -1803,12 +1864,12 @@ validate_tec_info() {
                     jq "(.network_adapters[] | select(.name == \"$adapter_name\") | .max_speed) = \"$new_value\"" "$json_file" > "${json_file}.tmp" && mv "${json_file}.tmp" "$json_file"
                     jq '.' "$json_file" > "$output_file" 2>/dev/null || cat "$json_file" > "$output_file"
                     ;;
-                14)
+                15)
                     read -p "Enter new Expandability Score: " new_value >&2
                     jq ".expandability_score = ($new_value // null)" "$json_file" > "${json_file}.tmp" && mv "${json_file}.tmp" "$json_file"
                     jq '.' "$json_file" > "$output_file" 2>/dev/null || cat "$json_file" > "$output_file"
                     ;;
-                15)
+                16)
                     read -p "Enter Mobile Gaming System (true/false): " new_value >&2
                     if [[ "$new_value" =~ ^[Tt] ]]; then
                         jq ".mobile_gaming_system = true" "$json_file" > "${json_file}.tmp" && mv "${json_file}.tmp" "$json_file"
@@ -1817,7 +1878,7 @@ validate_tec_info() {
                     fi
                     jq '.' "$json_file" > "$output_file" 2>/dev/null || cat "$json_file" > "$output_file"
                     ;;
-                16)
+                17)
                     validated="true"
                     ;;
                 *)

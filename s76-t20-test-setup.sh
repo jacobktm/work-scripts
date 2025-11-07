@@ -79,10 +79,6 @@ collect_tec_info() {
     local output_file="t20-eut.txt"
     local json_file="t20-eut.json"
     local es_response_file=""  # Will be set if expandability calculation is performed
-    local battery_capacity_wh_numeric=""
-    local total_memory_gb_numeric=""
-    local gpu_mem_bandwidth_numeric=""
-    local psu_wattage_numeric=""
     local has_discrete_gpu_detected="false"
     
     echo "Collecting system information for TEC score calculation..."
@@ -96,10 +92,30 @@ collect_tec_info() {
     read -p "Enter power supply model number (or press Enter to skip): " psu_model_manual
     echo ""
     
+    # Cache DMI information used throughout the script
+    local dmi_type1=$(sudo dmidecode --type 1 2>/dev/null)
+    local dmi_chassis=$(sudo dmidecode --type chassis 2>/dev/null)
+    local system_manufacturer=$(echo "$dmi_type1" | grep "Manufacturer:" | head -1 | cut -d: -f2 | xargs)
+    local product_name=$(echo "$dmi_type1" | grep "Product Name:" | head -1 | cut -d: -f2 | xargs)
+    local version=$(echo "$dmi_type1" | grep "Version:" | head -1 | cut -d: -f2 | xargs)
+    local chassis_type=$(echo "$dmi_chassis" | grep "Type:" | head -1 | cut -d: -f2 | xargs)
+    local chassis_manufacturer=$(echo "$dmi_chassis" | grep "Manufacturer:" | head -1 | cut -d: -f2 | xargs)
+    local chassis_version=$(echo "$dmi_chassis" | grep "Version:" | head -1 | cut -d: -f2 | xargs)
+    local product_lower=$(echo "$product_name" | tr '[:upper:]' '[:lower:]')
+    local version_lower=$(echo "$version" | tr '[:upper:]' '[:lower:]')
+    local chassis_type_lower=$(echo "$chassis_type" | tr '[:upper:]' '[:lower:]')
+    local is_notebook="false"
+    if [[ "$chassis_type_lower" == "notebook" || "$chassis_type_lower" == "laptop" ]]; then
+        is_notebook="true"
+    fi
+    local is_portable_all_in_one="false"
+    if [[ "$chassis_type_lower" == portable* ]] || [[ "$chassis_type_lower" == "portable all in one" ]] || [[ "$product_lower" == meer* ]] || [[ "$version_lower" == meer* ]]; then
+        is_portable_all_in_one="true"
+    fi
+    
     # Battery capacity should already be set from the check at the start of the script
     # If not set and this is a notebook, prompt now (shouldn't happen normally)
-    local chassis_type=$(sudo dmidecode --type chassis | grep "Type:" | awk '{print $2}')
-    if [[ "$chassis_type" == "Notebook" || "$chassis_type" == "Laptop" ]]; then
+    if [ "$is_notebook" = "true" ]; then
         if [ -z "$battery_capacity_wh" ]; then
             echo "No battery detected and no saved capacity found."
             echo "Please enter the battery capacity that was noted before removal."
@@ -115,10 +131,7 @@ collect_tec_info() {
         
         # System Information
         echo "  \"system\": {"
-        local manufacturer=$(sudo dmidecode --type 1 | grep "Manufacturer:" | cut -d: -f2 | xargs)
-        local product_name=$(sudo dmidecode --type 1 | grep "Product Name:" | cut -d: -f2 | xargs)
-        local version=$(sudo dmidecode --type 1 | grep "Version:" | cut -d: -f2 | xargs)
-        echo "    \"manufacturer\": \"${manufacturer}\","
+        echo "    \"manufacturer\": \"${system_manufacturer}\","
         echo "    \"product_name\": \"${product_name}\","
         echo "    \"version\": \"${version}\","
         
@@ -194,9 +207,6 @@ collect_tec_info() {
                 echo "========================================"
                 echo "System: ${product_name}"
                 echo "Expandability Lookup Identifier: ${lookup_identifier}"
-                if [ -n "$baseboard_version_type2" ]; then
-                    echo "Baseboard Version (Type 2): ${baseboard_version_type2}"
-                fi
                 echo "Date: $(date -Iseconds)"
                 echo ""
             } > "$es_response_file"
@@ -738,13 +748,10 @@ collect_tec_info() {
         # Get baseboard information for system object
         local baseboard_manufacturer=$(sudo dmidecode --type 2 2>/dev/null | grep "Manufacturer:" | cut -d: -f2 | xargs)
         local baseboard_product=$(sudo dmidecode --type 2 2>/dev/null | grep "Product Name:" | cut -d: -f2 | xargs)
+        local baseboard_version=$(sudo dmidecode --type 2 2>/dev/null | grep "Version:" | cut -d: -f2 | xargs)
         echo "    \"baseboard_manufacturer\": \"${baseboard_manufacturer}\","
         echo "    \"baseboard_product\": \"${baseboard_product}\","
-        if [ -n "$baseboard_version_type2" ]; then
-            echo "    \"baseboard_version\": \"${baseboard_version_type2}\"," 
-        else
-            echo "    \"baseboard_version\": null,"
-        fi
+        echo "    \"baseboard_version\": \"${baseboard_version}\","
         if [ -n "$lookup_identifier" ]; then
             echo "    \"expandability_lookup_identifier\": \"${lookup_identifier}\"," 
         else
@@ -799,8 +806,6 @@ collect_tec_info() {
         
         # Chassis/Form Factor
         echo "  \"chassis\": {"
-        local chassis_manufacturer=$(sudo dmidecode --type chassis | grep "Manufacturer:" | cut -d: -f2 | xargs)
-        local chassis_version=$(sudo dmidecode --type chassis | grep "Version:" | cut -d: -f2 | xargs)
         echo "    \"type\": \"${chassis_type}\","
         echo "    \"manufacturer\": \"${chassis_manufacturer}\","
         echo "    \"version\": \"${chassis_version}\""
@@ -843,14 +848,6 @@ collect_tec_info() {
         # Get vendor
         local cpu_vendor=$(grep "vendor_id" /proc/cpuinfo | head -1 | cut -d: -f2 | xargs)
         
-        # Try to get CPU TDP (Thermal Design Power) - may be in dmidecode or sysfs
-        local cpu_tdp=""
-        # Try from dmidecode processor information
-        local cpu_tdp_dmi=$(sudo dmidecode --type 4 2>/dev/null | grep -i "Max TDP\|TDP\|Thermal Design Power" | head -1 | grep -oE '[0-9]+' | head -1)
-        if [ -n "$cpu_tdp_dmi" ]; then
-            cpu_tdp="${cpu_tdp_dmi} W"
-        fi
-        
         echo "    \"model\": \"${cpu_model}\","
         echo "    \"vendor\": \"${cpu_vendor}\","
         echo "    \"family\": ${cpu_family:-null},"
@@ -867,7 +864,6 @@ collect_tec_info() {
         [ -n "$l1i_cache" ] && { echo "," && echo -n "    \"l1i_cache\": \"${l1i_cache}\""; has_optional=true; }
         [ -n "$l2_cache" ] && { echo "," && echo -n "    \"l2_cache\": \"${l2_cache}\""; has_optional=true; }
         [ -n "$l3_cache" ] && { echo "," && echo -n "    \"l3_cache\": \"${l3_cache}\""; has_optional=true; }
-        [ -n "$cpu_tdp" ] && { echo "," && echo -n "    \"tdp\": \"${cpu_tdp}\""; has_optional=true; }
         echo "," && echo "    \"bogomips\": ${cpu_bogomips:-null}"
         echo "  },"
         
@@ -1164,18 +1160,10 @@ collect_tec_info() {
         echo "  \"power_supply\": {"
         local psu_model_effective="$psu_model_manual"
         local has_internal_psu="true"
-        local chassis_type_lower=$(echo "$chassis_type" | tr '[:upper:]' '[:lower:]')
-        local product_lower=$(echo "$product_name" | tr '[:upper:]' '[:lower:]')
-        local version_lower=$(echo "$version" | tr '[:upper:]' '[:lower:]')
-        local is_portable_all_in_one="false"
-        if [[ "$chassis_type_lower" == "portable" ]] || [[ "$chassis_type_lower" == portable* ]] || [[ "$chassis_type_lower" == "portable all in one" ]] || [[ "$product_lower" == meer* ]] || [[ "$version_lower" == meer* ]]; then
-            is_portable_all_in_one="true"
-        fi
-
         if [ -n "$psu_model_effective" ]; then
             has_internal_psu="false"
         fi
-        if [ "$is_notebook" = "true" ] || [[ "$chassis_type_lower" == portable* ]] || [[ "$chassis_type_lower" == "portable all in one" ]] || [[ "$product_lower" == meer* ]] || [[ "$version_lower" == meer* ]] || [ "$mobile_gaming_system" = "true" ]; then
+        if [ "$is_notebook" = "true" ] || [ "$is_portable_all_in_one" = "true" ] || [ "$mobile_gaming_system" = "true" ]; then
             has_internal_psu="false"
         fi
 
@@ -1193,98 +1181,25 @@ collect_tec_info() {
         
         # Battery Information (for notebooks)
         echo "  \"battery\": {"
-        local battery_device=$(ls /sys/class/power_supply/ | grep -E '^BAT[0-9]' | head -1)
         
-        # Use prompted battery capacity if available (from global scope - saved from before battery removal)
-        # Otherwise try to read from files if battery is still present
         local capacity_wh=""
+        local battery_present="false"
         if [ -n "$battery_capacity_wh" ] && [ "$battery_capacity_wh" != "" ]; then
             # Use the prompted value (from saved file after restart)
             capacity_wh="$battery_capacity_wh"
-            echo "    \"capacity_full_wh\": \"${capacity_wh}\","
-            echo "    \"capacity_full_ah\": null,"
-        elif [ -n "$battery_device" ]; then
-            local battery_path="/sys/class/power_supply/${battery_device}"
-            local capacity_full=""
-            local capacity_unit=""
-            
-            # Prefer energy_full_design or energy_full if available (most accurate, matches printed spec)
-            # Then fall back to charge_full_design calculation if needed
-            # Some systems report energy_full incorrectly or in wrong units
-            if [ -f "${battery_path}/energy_full_design" ]; then
-                capacity_full=$(cat "${battery_path}/energy_full_design" 2>/dev/null || echo "")
-                capacity_unit="Wh"
-            elif [ -f "${battery_path}/energy_full" ]; then
-                capacity_full=$(cat "${battery_path}/energy_full" 2>/dev/null || echo "")
-                capacity_unit="Wh"
-            elif [ -f "${battery_path}/charge_full_design" ] && [ -f "${battery_path}/voltage_min_design" ]; then
-                capacity_full=$(cat "${battery_path}/charge_full_design" 2>/dev/null || echo "")
-                capacity_unit="Ah"
-            fi
-            
-            local voltage_min_design=$(cat "${battery_path}/voltage_min_design" 2>/dev/null || echo "")
-            
-            # Calculate capacity in Wh if we have charge in Ah
-            if [ -n "$capacity_full" ] && [ -n "$voltage_min_design" ] && [ "$capacity_unit" = "Ah" ]; then
-                # capacity_full is in µAh, voltage_min_design is in µV
-                # To get Wh: (µAh * µV) / 1,000,000,000,000
-                capacity_wh=$(echo "scale=2; (${capacity_full} * ${voltage_min_design}) / 1000000000000" | bc 2>/dev/null || echo "")
-                echo "    \"capacity_full_wh\": \"${capacity_wh}\","
-                echo "    \"capacity_full_ah\": \"$(echo "scale=2; ${capacity_full} / 1000000" | bc 2>/dev/null || echo "")\","
-            elif [ -n "$capacity_full" ] && [ "$capacity_unit" = "Wh" ]; then
-                capacity_wh=$(echo "scale=2; ${capacity_full} / 1000000" | bc 2>/dev/null || echo "")
-                echo "    \"capacity_full_wh\": \"${capacity_wh}\","
-                echo "    \"capacity_full_ah\": null,"
-            else
-                echo "    \"capacity_full_wh\": null,"
-                echo "    \"capacity_full_ah\": null,"
-            fi
+            echo "    \"capacity_full_wh\": \"${capacity_wh}\"," 
+            battery_present="true"
         else
             # No battery device and no saved capacity - set to null
-            echo "    \"capacity_full_wh\": null,"
-            echo "    \"capacity_full_ah\": null,"
+            echo "    \"capacity_full_wh\": null," 
         fi
         
-        # Calculate printed capacity (may be capped at 99Wh to avoid shipping restrictions)
-        # Batteries >= 100Wh have stricter shipping regulations, so manufacturers often print 99Wh
-        if [ -n "$capacity_wh" ] && [ "$capacity_wh" != "null" ] && [ "$capacity_wh" != "" ]; then
-            local capacity_wh_printed=""
-            local capacity_wh_compare=$(echo "$capacity_wh >= 100" | bc 2>/dev/null || echo "0")
-            if [ "$capacity_wh_compare" = "1" ]; then
-                capacity_wh_printed="99.00"
-            else
-                capacity_wh_printed="$capacity_wh"
-            fi
-            echo "    \"capacity_full_wh_printed\": \"${capacity_wh_printed}\","
-            battery_capacity_wh_numeric=$(echo "$capacity_wh" | tr -dc '0-9.')
-        else
-            echo "    \"capacity_full_wh_printed\": null,"
-        fi
-        
-        if [ -n "$battery_device" ]; then
-            local battery_path="/sys/class/power_supply/${battery_device}"
-            local voltage_min_design=$(cat "${battery_path}/voltage_min_design" 2>/dev/null || echo "")
-            local technology=$(cat "${battery_path}/technology" 2>/dev/null || echo "")
-            local manufacturer=$(cat "${battery_path}/manufacturer" 2>/dev/null || echo "")
-            local model_name=$(cat "${battery_path}/model_name" 2>/dev/null || echo "")
-            
-            echo "    \"voltage_min_design_v\": \"$(echo "scale=3; ${voltage_min_design} / 1000000" | bc 2>/dev/null || echo "")\","
-            echo "    \"technology\": \"${technology}\","
-            echo "    \"manufacturer\": \"${manufacturer}\","
-            echo "    \"model_name\": \"${model_name}\","
+        if [ "$battery_present" = "true" ]; then
             echo "    \"present\": true"
         else
-            echo "    \"present\": false,"
-            # Only output capacity fields as null if we didn't already output them above
-            if [ -z "$capacity_wh" ] || [ "$capacity_wh" = "null" ] || [ "$capacity_wh" = "" ]; then
-                echo "    \"capacity_full_wh\": null,"
-                echo "    \"capacity_full_ah\": null,"
-            fi
-            echo "    \"voltage_min_design_v\": null,"
-            echo "    \"technology\": null,"
-            echo "    \"manufacturer\": null,"
-            echo "    \"model_name\": null"
+            echo "    \"present\": false"
         fi
+        
         echo "  },"
         
         # Display Information
@@ -1691,7 +1606,6 @@ validate_tec_info() {
             "  Product Name: " + (.system.product_name // "null"),
             "  Manufacturer: " + (.system.manufacturer // "null"),
             "  Version: " + (.system.version // "null"),
-            "  Serial Number: " + (.system.serial_number // "null"),
             "  Chassis Type: " + (.system.chassis_type // "null"),
             "  Baseboard Manufacturer: " + (.system.baseboard_manufacturer // "null"),
             "  Baseboard Product: " + (.system.baseboard_product // "null"),
@@ -1703,7 +1617,6 @@ validate_tec_info() {
             "  Model: " + (.cpu.model // "null"),
             "  Cores: " + (.cpu.cores // "null" | tostring),
             "  Threads: " + (.cpu.threads // "null" | tostring),
-            "  TDP (W): " + (.cpu.tdp_w // "null" | tostring),
             "",
             "GPU Information:",
             "  Model: " + (.gpu.model // "null"),
@@ -1758,19 +1671,18 @@ validate_tec_info() {
             echo "  3. Baseboard Version" >&2
             echo "  4. Motherboard Model Number" >&2
             echo "  5. Power Supply Model" >&2
-            echo "  6. CPU TDP (W)" >&2
-            echo "  7. GPU Model" >&2
-            echo "  8. GPU Memory Bandwidth (GB/s)" >&2
-            echo "  9. Memory Total Capacity (GB)" >&2
-            echo "  10. Memory ECC" >&2
-            echo "  11. Battery Capacity (Wh)" >&2
-            echo "  12. Display Color Gamut" >&2
-            echo "  13. Storage Disk Information" >&2
-            echo "  14. Network Adapter Speed" >&2
-            echo "  15. Expandability Score" >&2
-            echo "  16. Mobile Gaming System" >&2
-            echo "  17. Skip editing" >&2
-            read -p "Enter field number to edit (1-17): " field_num >&2
+            echo "  6. GPU Model" >&2
+            echo "  7. GPU Memory Bandwidth (GB/s)" >&2
+            echo "  8. Memory Total Capacity (GB)" >&2
+            echo "  9. Memory ECC" >&2
+            echo "  10. Battery Capacity (Wh)" >&2
+            echo "  11. Display Color Gamut" >&2
+            echo "  12. Storage Disk Information" >&2
+            echo "  13. Network Adapter Speed" >&2
+            echo "  14. Expandability Score" >&2
+            echo "  15. Mobile Gaming System" >&2
+            echo "  16. Skip editing" >&2
+            read -p "Enter field number to edit (1-16): " field_num >&2
             
             case "$field_num" in
                 1)
@@ -1803,26 +1715,21 @@ validate_tec_info() {
                     jq '.' "$json_file" > "$output_file" 2>/dev/null || cat "$json_file" > "$output_file"
                     ;;
                 6)
-                    read -p "Enter new CPU TDP (W): " new_value >&2
-                    jq ".cpu.tdp_w = ($new_value // null)" "$json_file" > "${json_file}.tmp" && mv "${json_file}.tmp" "$json_file"
-                    jq '.' "$json_file" > "$output_file" 2>/dev/null || cat "$json_file" > "$output_file"
-                    ;;
-                7)
                     read -p "Enter new GPU Model: " new_value >&2
                     jq ".gpu.model = \"$new_value\"" "$json_file" > "${json_file}.tmp" && mv "${json_file}.tmp" "$json_file"
                     jq '.' "$json_file" > "$output_file" 2>/dev/null || cat "$json_file" > "$output_file"
                     ;;
-                8)
+                7)
                     read -p "Enter new GPU Memory Bandwidth (GB/s): " new_value >&2
                     jq ".gpu.memory_bandwidth_gbps = ($new_value // null)" "$json_file" > "${json_file}.tmp" && mv "${json_file}.tmp" "$json_file"
                     jq '.' "$json_file" > "$output_file" 2>/dev/null || cat "$json_file" > "$output_file"
                     ;;
-                9)
+                8)
                     read -p "Enter new Memory Total Capacity (GB): " new_value >&2
                     jq ".memory.total_capacity_gb = ($new_value // null)" "$json_file" > "${json_file}.tmp" && mv "${json_file}.tmp" "$json_file"
                     jq '.' "$json_file" > "$output_file" 2>/dev/null || cat "$json_file" > "$output_file"
                     ;;
-                10)
+                9)
                     read -p "Enter new Memory ECC (true/false): " new_value >&2
                     if [[ "$new_value" =~ ^[Tt] ]]; then
                         jq ".memory.ecc = \"true\"" "$json_file" > "${json_file}.tmp" && mv "${json_file}.tmp" "$json_file"
@@ -1831,12 +1738,12 @@ validate_tec_info() {
                     fi
                     jq '.' "$json_file" > "$output_file" 2>/dev/null || cat "$json_file" > "$output_file"
                     ;;
-                11)
+                10)
                     read -p "Enter new Battery Capacity (Wh): " new_value >&2
                     jq ".battery.capacity_full_wh = ($new_value // null)" "$json_file" > "${json_file}.tmp" && mv "${json_file}.tmp" "$json_file"
                     jq '.' "$json_file" > "$output_file" 2>/dev/null || cat "$json_file" > "$output_file"
                     ;;
-                12)
+                11)
                     echo "Available displays:" >&2
                     local idx=0
                     jq -r '.displays[] | "  \(.name)"' "$json_file" >&2
@@ -1845,10 +1752,10 @@ validate_tec_info() {
                     jq "(.displays[] | select(.name == \"$display_name\") | .color_gamut) = \"$new_value\"" "$json_file" > "${json_file}.tmp" && mv "${json_file}.tmp" "$json_file"
                     jq '.' "$json_file" > "$output_file" 2>/dev/null || cat "$json_file" > "$output_file"
                     ;;
-                13)
+                12)
                     echo "Note: Storage disk information editing not yet implemented. Please edit JSON file manually if needed." >&2
                     ;;
-                14)
+                13)
                     echo "Available network adapters:" >&2
                     jq -r '.network_adapters[] | "  \(.name)"' "$json_file" >&2
                     read -p "Enter adapter name to edit: " adapter_name >&2
@@ -1856,12 +1763,12 @@ validate_tec_info() {
                     jq "(.network_adapters[] | select(.name == \"$adapter_name\") | .max_speed) = \"$new_value\"" "$json_file" > "${json_file}.tmp" && mv "${json_file}.tmp" "$json_file"
                     jq '.' "$json_file" > "$output_file" 2>/dev/null || cat "$json_file" > "$output_file"
                     ;;
-                15)
+                14)
                     read -p "Enter new Expandability Score: " new_value >&2
                     jq ".expandability_score = ($new_value // null)" "$json_file" > "${json_file}.tmp" && mv "${json_file}.tmp" "$json_file"
                     jq '.' "$json_file" > "$output_file" 2>/dev/null || cat "$json_file" > "$output_file"
                     ;;
-                16)
+                15)
                     read -p "Enter Mobile Gaming System (true/false): " new_value >&2
                     if [[ "$new_value" =~ ^[Tt] ]]; then
                         jq ".mobile_gaming_system = true" "$json_file" > "${json_file}.tmp" && mv "${json_file}.tmp" "$json_file"
@@ -1870,7 +1777,7 @@ validate_tec_info() {
                     fi
                     jq '.' "$json_file" > "$output_file" 2>/dev/null || cat "$json_file" > "$output_file"
                     ;;
-                17)
+                16)
                     validated="true"
                     ;;
                 *)

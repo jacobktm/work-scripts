@@ -21,6 +21,10 @@ DMI_TYPE1=$(sudo dmidecode --type 1 2>/dev/null)
 DMI_TYPE2=$(sudo dmidecode --type 2 2>/dev/null)
 DMI_TYPE17=$(sudo dmidecode --type 17 2>/dev/null)
 DMI_CHASSIS=$(sudo dmidecode --type chassis 2>/dev/null)
+BIOS_VENDOR=$(echo "$DMI_TYPE0" | grep "Vendor:" | head -1 | cut -d: -f2 | xargs)
+BIOS_VERSION=$(echo "$DMI_TYPE0" | grep "Version:" | head -1 | cut -d: -f2 | xargs)
+BIOS_DATE=$(echo "$DMI_TYPE0" | grep "Release Date:" | head -1 | cut -d: -f2 | xargs)
+BIOS_RELEASE_DATE="$BIOS_DATE"
 SYSTEM_MANUFACTURER=$(echo "$DMI_TYPE1" | grep "Manufacturer:" | head -1 | cut -d: -f2 | xargs)
 PRODUCT_NAME=$(echo "$DMI_TYPE1" | grep "Product Name:" | head -1 | cut -d: -f2 | xargs)
 SYSTEM_VERSION=$(echo "$DMI_TYPE1" | grep "Version:" | head -1 | cut -d: -f2 | xargs)
@@ -41,6 +45,11 @@ fi
 IS_PORTABLE_ALL_IN_ONE="false"
 if [[ "$CHASSIS_TYPE_LOWER" == portable* ]] || [[ "$CHASSIS_TYPE_LOWER" == "portable all in one" ]] || [[ "$PRODUCT_LOWER" == meer* ]] || [[ "$VERSION_LOWER" == meer* ]]; then
     IS_PORTABLE_ALL_IN_ONE="true"
+fi
+
+BATTERY_REMOVED="false"
+if [[ "$CHASSIS_TYPE" == "Notebook" || "$CHASSIS_TYPE" == "Laptop" ]] && [ -z "$battery_device" ]; then
+    BATTERY_REMOVED="true"
 fi
 
 if [ -n "$battery_device" ]; then
@@ -1181,21 +1190,23 @@ collect_tec_info() {
         local capacity_wh=""
         local battery_present="false"
         if [ -n "$battery_capacity_wh" ] && [ "$battery_capacity_wh" != "" ]; then
-            # Use the prompted value (from saved file after restart)
             capacity_wh="$battery_capacity_wh"
             echo "    \"capacity_full_wh\": \"${capacity_wh}\"," 
             battery_present="true"
         else
-            # No battery device and no saved capacity - set to null
             echo "    \"capacity_full_wh\": null," 
         fi
         
+        local battery_removed_flag="false"
         if [ "$battery_present" = "true" ]; then
-            echo "    \"present\": true"
+            echo "    \"present\": true," 
         else
-            echo "    \"present\": false"
+            echo "    \"present\": false," 
+            if [ "$BATTERY_REMOVED" = "true" ]; then
+                battery_removed_flag="true"
+            fi
         fi
-        
+        echo "    \"removed\": ${battery_removed_flag}"
         echo "  },"
         
         # Display Information
@@ -1215,7 +1226,7 @@ collect_tec_info() {
         
         # Prompt for color gamut information for each display
         echo "Collecting display color gamut information..." >&2
-        declare -A display_gamuts
+        declare -A display_gamuts display_contrast display_viewing
         for display_name in "${display_names[@]}"; do
             echo "" >&2
             echo "Color gamut options for display '${display_name}':" >&2
@@ -1235,6 +1246,34 @@ collect_tec_info() {
                     ;;
                 *)
                     display_gamuts["$display_name"]="${color_gamut_choice:-null}"
+                    ;;
+            esac
+
+            read -p "Does display '${display_name}' meet the contrast ratio requirement (>= 60:1)? (true/false): " contrast_response
+            local contrast_normalized=$(echo "${contrast_response}" | tr '[:upper:]' '[:lower:]')
+            case "$contrast_normalized" in
+                y|yes|true)
+                    display_contrast["$display_name"]="true"
+                    ;;
+                n|no|false)
+                    display_contrast["$display_name"]="false"
+                    ;;
+                *)
+                    display_contrast["$display_name"]=""
+                    ;;
+            esac
+
+            read -p "Does display '${display_name}' meet the viewing angle requirement (> 85 degrees)? (true/false): " viewing_response
+            local viewing_normalized=$(echo "${viewing_response}" | tr '[:upper:]' '[:lower:]')
+            case "$viewing_normalized" in
+                y|yes|true)
+                    display_viewing["$display_name"]="true"
+                    ;;
+                n|no|false)
+                    display_viewing["$display_name"]="false"
+                    ;;
+                *)
+                    display_viewing["$display_name"]=""
                     ;;
             esac
         done
@@ -1330,6 +1369,14 @@ collect_tec_info() {
             fi
             
             local color_gamut="${display_gamuts[$display_name]:-null}"
+            local contrast_value="null"
+            if [ -n "${display_contrast[$display_name]}" ]; then
+                contrast_value="${display_contrast[$display_name]}"
+            fi
+            local viewing_value="null"
+            if [ -n "${display_viewing[$display_name]}" ]; then
+                viewing_value="${display_viewing[$display_name]}"
+            fi
             local display_lines=()
             display_lines+=("\"name\": \"${display_name}\"")
             display_lines+=("\"resolution\": \"${resolution}\"")
@@ -1342,6 +1389,8 @@ collect_tec_info() {
             display_lines+=("\"height_inches\": ${height_inches:-null}")
             display_lines+=("\"diagonal_inches\": ${diagonal_inches:-null}")
             display_lines+=("\"area_square_inches\": ${area_square_inches:-null}")
+            display_lines+=("\"contrast_ratio_requirement_met\": ${contrast_value}")
+            display_lines+=("\"viewing_angle_requirement_met\": ${viewing_value}")
             display_lines+=("\"color_gamut\": \"${color_gamut}\"")
             echo "    {"
             local idx=0
@@ -1602,6 +1651,9 @@ validate_tec_info() {
             "  Product Name: " + (.system.product_name // "null"),
             "  Manufacturer: " + (.system.manufacturer // "null"),
             "  Version: " + (.system.version // "null"),
+            "  BIOS Vendor: " + (.system.bios_vendor // "null"),
+            "  BIOS Version: " + (.system.bios_version // "null"),
+            "  BIOS Date: " + (.system.bios_date // "null"),
             "  Chassis Type: " + (.system.chassis_type // "null"),
             "  Baseboard Manufacturer: " + (.system.baseboard_manufacturer // "null"),
             "  Baseboard Product: " + (.system.baseboard_product // "null"),
@@ -1624,11 +1676,12 @@ validate_tec_info() {
             "  ECC: " + (.memory.ecc // "null"),
             "",
             "Battery Information:",
-            "  Capacity (Wh): " + (.battery.capacity_full_wh // "null" | tostring),
+            "  Capacity (Wh): " + ((.battery.capacity_full_wh // "null") | tostring),
             "  Technology: " + (.battery.technology // "null"),
+            "  Removed: " + (if .battery.removed == null then "null" else (.battery.removed | tostring) end),
             "",
             "Displays:",
-            (.displays[] | "  " + .name + ": " + .resolution + " (" + (.color_gamut // "null") + ")"),
+            (.displays[] | "  " + ((.name // "null")) + ": " + ((.resolution // "null")) + " (color gamut: " + ((.color_gamut // "null")) + ", contrast >=60: " + (if .contrast_ratio_requirement_met == null then "null" else (.contrast_ratio_requirement_met | tostring) end) + ", viewing angle >85: " + (if .viewing_angle_requirement_met == null then "null" else (.viewing_angle_requirement_met | tostring) end) + ")"),
             "",
             "Storage:",
             "  Disk Count: " + (.storage.disk_count // "null" | tostring),
@@ -1741,12 +1794,50 @@ validate_tec_info() {
                     ;;
                 11)
                     echo "Available displays:" >&2
-                    local idx=0
                     jq -r '.displays[] | "  \(.name)"' "$json_file" >&2
                     read -p "Enter display name to edit: " display_name >&2
-                    read -p "Enter new color gamut (e.g., '99% sRGB'): " new_value >&2
-                    jq "(.displays[] | select(.name == \"$display_name\") | .color_gamut) = \"$new_value\"" "$json_file" > "${json_file}.tmp" && mv "${json_file}.tmp" "$json_file"
-                    jq '.' "$json_file" > "$output_file" 2>/dev/null || cat "$json_file" > "$output_file"
+                    if [ -z "$display_name" ]; then
+                        echo "No display selected." >&2
+                        continue
+                    fi
+
+                    read -p "Enter new color gamut (leave blank to keep current): " new_value >&2
+                    if [ -n "$new_value" ]; then
+                        jq "(.displays[] | select(.name == \"$display_name\") | .color_gamut) = \"$new_value\"" "$json_file" > "${json_file}.tmp" && mv "${json_file}.tmp" "$json_file"
+                        jq '.' "$json_file" > "$output_file" 2>/dev/null || cat "$json_file" > "$output_file"
+                    fi
+
+                    read -p "Does the display meet the contrast ratio requirement (>= 60:1)? (true/false, leave blank to keep current): " new_contrast >&2
+                    if [ -n "$new_contrast" ]; then
+                        local contrast_lower=$(echo "$new_contrast" | tr '[:upper:]' '[:lower:]')
+                        local contrast_bool="null"
+                        case "$contrast_lower" in
+                            y|yes|true)
+                                contrast_bool="true"
+                                ;;
+                            n|no|false)
+                                contrast_bool="false"
+                                ;;
+                        esac
+                        jq --argjson val "$contrast_bool" "(.displays[] | select(.name == \"$display_name\") | .contrast_ratio_requirement_met) = $val" "$json_file" > "${json_file}.tmp" && mv "${json_file}.tmp" "$json_file"
+                        jq '.' "$json_file" > "$output_file" 2>/dev/null || cat "$json_file" > "$output_file"
+                    fi
+
+                    read -p "Does the display meet the viewing angle requirement (> 85 degrees)? (true/false, leave blank to keep current): " new_viewing >&2
+                    if [ -n "$new_viewing" ]; then
+                        local viewing_lower=$(echo "$new_viewing" | tr '[:upper:]' '[:lower:]')
+                        local viewing_bool="null"
+                        case "$viewing_lower" in
+                            y|yes|true)
+                                viewing_bool="true"
+                                ;;
+                            n|no|false)
+                                viewing_bool="false"
+                                ;;
+                        esac
+                        jq --argjson val "$viewing_bool" "(.displays[] | select(.name == \"$display_name\") | .viewing_angle_requirement_met) = $val" "$json_file" > "${json_file}.tmp" && mv "${json_file}.tmp" "$json_file"
+                        jq '.' "$json_file" > "$output_file" 2>/dev/null || cat "$json_file" > "$output_file"
+                    fi
                     ;;
                 12)
                     echo "Note: Storage disk information editing not yet implemented. Please edit JSON file manually if needed." >&2

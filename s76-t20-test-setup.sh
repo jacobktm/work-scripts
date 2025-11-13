@@ -10,6 +10,45 @@ fi
 SCP_USER="$1"
 SCP_IP="$2"
 SCRIPT_DIR="$(dirname "$(realpath "$0")")"
+SCRIPT_PATH="$(realpath "$0")"
+AUTOSTART_DIR="${HOME}/.config/autostart"
+AUTORUN_DESKTOP="${AUTOSTART_DIR}/s76-t20-test-setup.desktop"
+UPDATE_MARKER="${HOME}/.update"
+
+if [ ! -f "$UPDATE_MARKER" ]; then
+    mkdir -p "$AUTOSTART_DIR"
+    cat > "$AUTORUN_DESKTOP" <<EOF
+[Desktop Entry]
+Type=Application
+Name=System76 T20 Setup
+Comment=Resume T20 test setup after applying updates
+Exec=$SCRIPT_PATH $SCP_USER $SCP_IP
+Terminal=true
+X-GNOME-Autostart-enabled=true
+EOF
+    chmod +x "$AUTORUN_DESKTOP"
+    touch "$UPDATE_MARKER"
+
+    echo "Initial update phase detected. Installing system updates before T20 setup..."
+    if command -v apt-proxy &>/dev/null; then
+        APT_COMMAND="apt-proxy"
+    else
+        APT_COMMAND="sudo apt"
+    fi
+
+    until $APT_COMMAND update; do
+        echo "apt update failed, retrying in 10 seconds..."
+        sleep 10
+    done
+    $APT_COMMAND -y full-upgrade
+
+    echo "Updates applied. Rebooting to continue T20 setup."
+    sudo reboot
+    exit 0
+else
+    rm -f "$UPDATE_MARKER"
+    rm -f "$AUTORUN_DESKTOP"
+fi
 
 # Check for battery and prompt user to note capacity, then shutdown for battery removal
 # This must happen before any setup work (git clone, settings changes, etc.)
@@ -1188,23 +1227,22 @@ collect_tec_info() {
         echo "  \"battery\": {"
         
         local capacity_wh=""
-        local battery_present="false"
         if [ -n "$battery_capacity_wh" ] && [ "$battery_capacity_wh" != "" ]; then
             capacity_wh="$battery_capacity_wh"
             echo "    \"capacity_full_wh\": \"${capacity_wh}\"," 
-            battery_present="true"
         else
             echo "    \"capacity_full_wh\": null," 
         fi
         
+        local battery_present_flag="false"
+        if [ -n "$battery_device" ]; then
+            battery_present_flag="true"
+        fi
+        echo "    \"present\": ${battery_present_flag},"
+        
         local battery_removed_flag="false"
-        if [ "$battery_present" = "true" ]; then
-            echo "    \"present\": true," 
-        else
-            echo "    \"present\": false," 
-            if [ "$BATTERY_REMOVED" = "true" ]; then
-                battery_removed_flag="true"
-            fi
+        if [ "$battery_present_flag" != "true" ] && [ "$BATTERY_REMOVED" = "true" ]; then
+            battery_removed_flag="true"
         fi
         echo "    \"removed\": ${battery_removed_flag}"
         echo "  },"
@@ -1984,65 +2022,6 @@ validate_tec_info "$TEC_JSON_FILE" "$TEC_OUTPUT_FILE"
 # SCP files to server
 scp_tec_files "$SCP_USER" "$SCP_IP" "$TEC_JSON_FILE" "$TEC_OUTPUT_FILE" "$TEC_ES_RESPONSE_FILE"
 
-# Check if apt-proxy exists, and set the correct APT command
-if command -v apt-proxy &>/dev/null; then
-    APT_COMMAND="apt-proxy"
-else
-    APT_COMMAND="sudo apt"
-fi
-
-# Check if the system is a laptop by examining the chassis type
-echo "Checking if the system is a laptop..."
-chassis_type="$CHASSIS_TYPE"
-
-if [[ "$chassis_type" == "Notebook" || "$chassis_type" == "Laptop" ]]; then
-    echo "System is a laptop. Proceeding with setting the panel brightness."
-
-    # Get the maximum brightness value from sysfs
-    if [ -f /sys/class/backlight/*/max_brightness ]; then
-        max_brightness=$(cat /sys/class/backlight/*/max_brightness)
-        brightness_file="/sys/class/backlight/*/brightness"
-    else
-        echo "Max brightness file not found!"
-        exit 1
-    fi
-
-    # Prompt user for the max display brightness in nits for this specific model
-    read -p "Enter the maximum display brightness in nits for this model (e.g., 250, 300): " max_nits
-
-    # Prompt user for the desired brightness in nits (must be at least 90 nits)
-    read -p "Enter the desired display brightness in nits (must be at least 90 nits): " user_brightness
-
-    # Verify if the entered brightness is a number and greater than 90 nits
-    if ! [[ "$user_brightness" =~ ^[0-9]+$ ]] || [ "$user_brightness" -lt 90 ]; then
-        echo "Invalid input. Setting brightness to at least 90 nits."
-        user_brightness=90
-    fi
-
-    # Calculate the brightness value to set in sysfs based on the user's input and max brightness
-    target_brightness=$(echo "$user_brightness * $max_brightness / $max_nits" | bc -l)
-
-    # Emulate ceiling to always round up
-    # Check if the value is a whole number, if not, round up
-    target_brightness_ceiling=$(echo "($target_brightness+0.999)/1" | bc)
-
-    # Ensure the target brightness is at least 1 (to avoid setting it to 0)
-    if [ "$target_brightness_ceiling" -lt 1 ]; then
-        target_brightness_ceiling=1
-    fi
-
-    # Set the backlight value to the calculated target
-    echo "Setting backlight brightness to value: $target_brightness_ceiling"
-    echo $target_brightness_ceiling | sudo tee $brightness_file
-
-else
-    echo "System is not a laptop. Skipping brightness adjustment."
-fi
-
-# Update and install packages
-until $APT_COMMAND update; do
-    sleep 10
-done
-$APT_COMMAND -y full-upgrade
-reboot
+echo "T20 setup complete. Shutting down the system."
+sudo shutdown -h now
 

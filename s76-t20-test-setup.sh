@@ -14,6 +14,7 @@ SCRIPT_PATH="$(realpath "$0")"
 AUTOSTART_DIR="${HOME}/.config/autostart"
 AUTORUN_DESKTOP="${AUTOSTART_DIR}/s76-t20-test-setup.desktop"
 UPDATE_MARKER="${HOME}/.update"
+AUTORUN_CLEANUP_PENDING="false"
 
 if [ ! -f "$UPDATE_MARKER" ]; then
     mkdir -p "$AUTOSTART_DIR"
@@ -48,6 +49,7 @@ EOF
 else
     rm -f "$UPDATE_MARKER"
     rm -f "$AUTORUN_DESKTOP"
+    AUTORUN_CLEANUP_PENDING="true"
 fi
 
 # Check for battery and prompt user to note capacity, then shutdown for battery removal
@@ -106,6 +108,15 @@ if [ -n "$battery_device" ]; then
     sleep 5
     sudo shutdown -h now
     exit 0
+fi
+
+if [ "$AUTORUN_CLEANUP_PENDING" = "true" ]; then
+    if [ "$IS_NOTEBOOK" = "true" ] && [ -n "$battery_device" ]; then
+        :
+    else
+        rm -f "$UPDATE_MARKER"
+        rm -f "$AUTORUN_DESKTOP"
+    fi
 fi
 
 # If no battery detected, check for saved capacity from previous run

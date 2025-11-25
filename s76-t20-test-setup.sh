@@ -1,14 +1,7 @@
 #!/bin/bash
 
-# Check for required arguments: username and IP address
-if [ $# -lt 2 ]; then
-    echo "Error: Missing required arguments" >&2
-    echo "Usage: $0 <username> <ip_address>" >&2
-    exit 1
-fi
-
-SCP_USER="$1"
-SCP_IP="$2"
+# Flask service endpoint for submitting TEC data
+FLASK_SERVICE_URL="http://10.17.89.69:7432/api"
 SCRIPT_DIR="$(dirname "$(realpath "$0")")"
 SCRIPT_PATH="$(realpath "$0")"
 AUTOSTART_DIR="${HOME}/.config/autostart"
@@ -23,7 +16,7 @@ if [ ! -f "$UPDATE_MARKER" ]; then
 Type=Application
 Name=System76 T20 Setup
 Comment=Resume T20 test setup after applying updates
-Exec=$SCRIPT_PATH $SCP_USER $SCP_IP
+Exec=$SCRIPT_PATH
 Terminal=true
 X-GNOME-Autostart-enabled=true
 EOF
@@ -47,8 +40,7 @@ EOF
     sudo reboot
     exit 0
 else
-    rm -f "$UPDATE_MARKER"
-    rm -f "$AUTORUN_DESKTOP"
+    # Don't remove marker/desktop files yet - we'll check for battery first
     AUTORUN_CLEANUP_PENDING="true"
 fi
 
@@ -110,13 +102,14 @@ if [ -n "$battery_device" ]; then
     exit 0
 fi
 
+# Clean up autorun files after battery check
+# Only keep them if this is a notebook and we just shut down for battery removal
+# (which means we'll be autorunning again after the shutdown)
 if [ "$AUTORUN_CLEANUP_PENDING" = "true" ]; then
-    if [ "$IS_NOTEBOOK" = "true" ] && [ -n "$battery_device" ]; then
-        :
-    else
-        rm -f "$UPDATE_MARKER"
-        rm -f "$AUTORUN_DESKTOP"
-    fi
+    # If we're here and battery was detected, the script would have already exited above
+    # So we only reach here if no battery was detected, meaning we can safely clean up
+    rm -f "$UPDATE_MARKER"
+    rm -f "$AUTORUN_DESKTOP"
 fi
 
 # If no battery detected, check for saved capacity from previous run
@@ -160,8 +153,6 @@ echo "$DMI_TYPE17" > mem-info.txt
 
 # Function to collect system information for TEC score calculation
 collect_tec_info() {
-    local scp_user="$1"
-    local scp_ip="$2"
     local output_file="t20-eut.txt"
     local json_file="t20-eut.json"
     local es_response_file=""  # Will be set if expandability calculation is performed
@@ -1940,98 +1931,57 @@ validate_tec_info() {
     fi
 }
 
-# Function to SCP files to server
-scp_tec_files() {
-    local scp_user="$1"
-    local scp_ip="$2"
-    local json_file="$3"
-    local output_file="$4"
-    local es_response_file="$5"
+# Function to POST JSON data to Flask service
+post_tec_json() {
+    local json_file="$1"
     
-    echo "Attempting to copy files to ${scp_user}@${scp_ip}..." >&2
-    
-    # Determine which main file to use
-    local main_file=""
-    if [ -f "$output_file" ]; then
-        main_file="$output_file"
-    elif [ -f "$json_file" ]; then
-        main_file="$json_file"
+    if [ ! -f "$json_file" ]; then
+        echo "Error: JSON file not found: $json_file" >&2
+        return 1
     fi
     
-    if command -v scp &> /dev/null || command -v rsync &> /dev/null; then
-        # Create a temporary directory and copy files with correct names
-        local temp_dir=$(mktemp -d)
-        local cleanup_temp=1
-        
-        # Copy main file with correct remote name
-        if [ -n "$main_file" ]; then
-            cp "$main_file" "$temp_dir/t20-eut.txt" 2>/dev/null || cleanup_temp=0
+    echo "Posting JSON data to Flask service at $FLASK_SERVICE_URL..." >&2
+    
+    if ! command -v curl &> /dev/null; then
+        echo "Error: curl is not installed. Cannot post data to service." >&2
+        echo "JSON file location: $json_file" >&2
+        return 1
+    fi
+    
+    # POST the JSON file to the Flask service
+    local http_code
+    local response
+    response=$(curl -s -w "\n%{http_code}" -X POST "$FLASK_SERVICE_URL" \
+        -H "Content-Type: application/json" \
+        --data-binary @"$json_file")
+    
+    http_code=$(echo "$response" | tail -n1)
+    response_body=$(echo "$response" | sed '$d')
+    
+    if [ "$http_code" -ge 200 ] && [ "$http_code" -lt 300 ]; then
+        echo "Successfully posted JSON data to Flask service (HTTP $http_code)" >&2
+        if [ -n "$response_body" ]; then
+            echo "Response: $response_body" >&2
         fi
-        
-        # Copy expandability score response file if it exists
-        if [ -n "$es_response_file" ] && [ -f "$es_response_file" ]; then
-            cp "$es_response_file" "$temp_dir/$(basename "$es_response_file")" 2>/dev/null || cleanup_temp=0
-        fi
-        
-        # Transfer the entire directory contents in one command
-        if [ $cleanup_temp -eq 1 ] && [ -n "$main_file" ]; then
-            if command -v rsync &> /dev/null; then
-                # rsync: trailing slash on source copies contents, not directory
-                rsync -avz "$temp_dir/" "${scp_user}@${scp_ip}:~/" || {
-                    echo "Warning: Could not rsync files to ${scp_user}@${scp_ip}." >&2
-                    cleanup_temp=0
-                }
-            else
-                # scp: need to copy files individually or use a different approach
-                # Use find to get all files and copy them
-                (cd "$temp_dir" && find . -type f -exec scp {} "${scp_user}@${scp_ip}:~/" \; 2>/dev/null) || {
-                    echo "Warning: Could not SCP files to ${scp_user}@${scp_ip}." >&2
-                    cleanup_temp=0
-                }
-            fi
-            
-            # Clean up temp directory
-            rm -rf "$temp_dir"
-        else
-            # Fallback: sequential transfers if temp setup failed
-            local scp_failed=0
-            if [ -n "$main_file" ]; then
-                if command -v rsync &> /dev/null; then
-                    rsync -avz "$main_file" "${scp_user}@${scp_ip}:~/t20-eut.txt" || scp_failed=1
-                else
-                    scp "$main_file" "${scp_user}@${scp_ip}:~/t20-eut.txt" || scp_failed=1
-                fi
-            fi
-            if [ -n "$es_response_file" ] && [ -f "$es_response_file" ]; then
-                if command -v rsync &> /dev/null; then
-                    rsync -avz "$es_response_file" "${scp_user}@${scp_ip}:~/" || scp_failed=1
-                else
-                    scp "$es_response_file" "${scp_user}@${scp_ip}:~/" || scp_failed=1
-                fi
-            fi
-            
-            if [ $scp_failed -eq 1 ]; then
-                echo "Warning: Could not transfer files to ${scp_user}@${scp_ip}. Please copy files manually:" >&2
-                [ -n "$main_file" ] && echo "  $main_file -> ~/t20-eut.txt" >&2
-                [ -n "$es_response_file" ] && [ -f "$es_response_file" ] && echo "  $es_response_file -> ~/$(basename "$es_response_file")" >&2
-            fi
-            [ -d "$temp_dir" ] && rm -rf "$temp_dir"
-        fi
+        return 0
     else
-        echo "Warning: Neither rsync nor scp found. Please copy files manually to ${scp_user}@${scp_ip}:" >&2
-        [ -n "$main_file" ] && echo "  $main_file -> ~/t20-eut.txt" >&2
-        [ -n "$es_response_file" ] && [ -f "$es_response_file" ] && echo "  $es_response_file -> ~/$(basename "$es_response_file")" >&2
+        echo "Warning: Failed to post JSON data to Flask service (HTTP $http_code)" >&2
+        if [ -n "$response_body" ]; then
+            echo "Response: $response_body" >&2
+        fi
+        echo "JSON file location: $json_file" >&2
+        return 1
     fi
 }
 
 # Collect system information
-collect_tec_info "$SCP_USER" "$SCP_IP"
+collect_tec_info
 
 # Validate and review collected information
 validate_tec_info "$TEC_JSON_FILE" "$TEC_OUTPUT_FILE"
 
-# SCP files to server
-scp_tec_files "$SCP_USER" "$SCP_IP" "$TEC_JSON_FILE" "$TEC_OUTPUT_FILE" "$TEC_ES_RESPONSE_FILE"
+# POST JSON data to Flask service
+post_tec_json "$TEC_JSON_FILE"
 
 echo "T20 setup complete. Shutting down the system."
 sudo shutdown -h now

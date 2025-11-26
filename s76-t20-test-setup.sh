@@ -1352,91 +1352,86 @@ collect_tec_info() {
                 monitor_info_file="${HOME}/monitor-info.txt"
             elif [ -f "monitor-info.txt" ]; then
                 monitor_info_file="monitor-info.txt"
+            elif [ -f "${SCRIPT_DIR}/monitor-info.txt" ]; then
+                monitor_info_file="${SCRIPT_DIR}/monitor-info.txt"
             fi
             
             if [ -n "$monitor_info_file" ] && [ -f "$monitor_info_file" ]; then
-                # Find the EDID block for this display
-                # xrandr --verbose | edid-decode outputs each display's EDID in sections
-                # The display name appears in xrandr output, followed by EDID decoded data
+                # Strategy: Find the EDID block associated with this display, then extract panel model
+                # xrandr --verbose | edid-decode outputs: display connection info, then EDID blocks
+                # We'll collect the EDID block that follows this display's connection line
+                
                 local found_display=false
-                local collect_lines=false
-                local edid_lines=""
+                local collecting_edid=false
+                local edid_block=""
                 
                 while IFS= read -r line; do
-                    # Look for the display name in xrandr output format: "DISPLAY_NAME connected"
+                    # Look for this display's connection line: "DISPLAY_NAME connected ..."
                     if echo "$line" | grep -qE "^${display_name}[[:space:]]+connected"; then
                         found_display=true
-                        collect_lines=true
-                        edid_lines="$line"$'\n'
-                    # Also check for display name appearing in other contexts
-                    elif echo "$line" | grep -qE "^[[:space:]]*${display_name}[[:space:]]"; then
-                        if [ "$found_display" = false ]; then
-                            found_display=true
-                            collect_lines=true
-                            edid_lines="$line"$'\n'
-                        fi
-                    elif [ "$collect_lines" = true ]; then
-                        # Stop collecting when we hit another display connection line (different display)
+                        collecting_edid=false
+                        edid_block=""
+                    # Once we find the display, start collecting when we hit an EDID block
+                    elif [ "$found_display" = true ] && echo "$line" | grep -qE "^Block 0"; then
+                        collecting_edid=true
+                        edid_block="$line"$'\n'
+                    # Continue collecting EDID block content
+                    elif [ "$collecting_edid" = true ]; then
+                        # Stop if we hit another display connection line
                         if echo "$line" | grep -qE "^[A-Za-z0-9_-]+[[:space:]]+connected"; then
-                            local other_display=$(echo "$line" | grep -oE "^[A-Za-z0-9_-]+")
-                            if [ -n "$other_display" ] && [ "$other_display" != "$display_name" ]; then
-                                break
-                            fi
+                            break
                         fi
-                        # Also stop if we hit a new Block/EDID section for a different display
+                        # Stop if we hit another Block (new EDID block for different display)
                         if echo "$line" | grep -qE "^Block [0-9]"; then
-                            # If we've already collected some EDID data, this might be a new display
-                            # But if we're still in the same display's EDID block, continue
-                            if [ -n "$edid_lines" ] && echo "$edid_lines" | grep -q "Block 0"; then
-                                # We already have a complete block, stop here
-                                break
-                            fi
+                            break
                         fi
-                        edid_lines="${edid_lines}${line}"$'\n'
+                        edid_block="${edid_block}${line}"$'\n'
                     fi
                 done < "$monitor_info_file"
                 
-                # Extract monitor name/model from the EDID block
-                # edid-decode outputs fields like "Alphanumeric Data String:", "Monitor name:", etc.
-                if [ -n "$edid_lines" ]; then
-                    # First, try to find panel identifier from "Alphanumeric Data String" entries
-                    # These often contain the panel model number (e.g., "NE173QHM-NZ1")
-                    # Look for strings that contain numbers and look like model identifiers
+                # If we didn't find a match by display name, search entire file for panel models
+                # and take the first good match (for single-display systems)
+                if [ -z "$edid_block" ] || [ "$edid_block" = "" ]; then
+                    # Search the entire file for Alphanumeric Data Strings with panel model patterns
                     while IFS= read -r line; do
                         if echo "$line" | grep -qi "Alphanumeric Data String"; then
-                            # Extract the value between single quotes: 'VALUE'
                             local candidate=$(echo "$line" | sed -n "s/.*'\([^']*\)'.*/\1/p" | sed 's/[[:space:]]*$//')
-                            if [ -n "$candidate" ] && [ ${#candidate} -ge 3 ]; then
-                                # Prefer strings that contain numbers and dashes/underscores (typical panel model format)
+                            if [ -n "$candidate" ] && [ ${#candidate} -ge 5 ]; then
+                                # Look for panel model pattern: letters+numbers+dashes, e.g., "NE173QHM-NZ1"
+                                if echo "$candidate" | grep -qE '[A-Z]{2,}[0-9].*[-_]|[0-9].*[A-Z].*[-_]'; then
+                                    panel_model="$candidate"
+                                    break
+                                fi
+                            fi
+                        fi
+                    done < "$monitor_info_file"
+                else
+                    # Extract panel model from the collected EDID block
+                    # First, try Alphanumeric Data String entries (panel model identifiers)
+                    while IFS= read -r line; do
+                        if echo "$line" | grep -qi "Alphanumeric Data String"; then
+                            local candidate=$(echo "$line" | sed -n "s/.*'\([^']*\)'.*/\1/p" | sed 's/[[:space:]]*$//')
+                            if [ -n "$candidate" ] && [ ${#candidate} -ge 5 ]; then
+                                # Prefer strings that look like panel model numbers
                                 # Pattern: letters+numbers+dashes, e.g., "NE173QHM-NZ1"
-                                if echo "$candidate" | grep -qE '[0-9].*[-_]|[A-Z]{2,}[0-9]|[0-9][A-Z]{2,}'; then
+                                if echo "$candidate" | grep -qE '[A-Z]{2,}[0-9].*[-_]|[0-9].*[A-Z].*[-_]'; then
                                     panel_model="$candidate"
                                     break
                                 elif [ -z "$panel_model" ]; then
-                                    # Keep the first reasonable candidate as fallback
+                                    # Keep first reasonable candidate as fallback
                                     panel_model="$candidate"
                                 fi
                             fi
                         fi
-                    done <<< "$edid_lines"
-                    
-                    # If no alphanumeric data string found, try other common formats
-                    if [ -z "$panel_model" ] || [ "$panel_model" = "" ]; then
-                        local monitor_name_line=$(echo "$edid_lines" | grep -iE "(Monitor name|Display name|Product name)" | head -1)
+                    done <<< "$edid_block"
+                fi
+                
+                # Fallback: try other EDID fields if no alphanumeric string found
+                if [ -z "$panel_model" ] || [ "$panel_model" = "" ]; then
+                    if [ -n "$edid_block" ]; then
+                        local monitor_name_line=$(echo "$edid_block" | grep -iE "(Monitor name|Display name|Product name)" | head -1)
                         if [ -n "$monitor_name_line" ]; then
-                            # Extract value after colon
                             panel_model=$(echo "$monitor_name_line" | sed 's/.*:[[:space:]]*//' | sed 's/[[:space:]]*$//' | head -1)
-                        fi
-                    fi
-                    
-                    # Final fallback: try manufacturer + product code
-                    if [ -z "$panel_model" ] || [ "$panel_model" = "" ]; then
-                        local manufacturer=$(echo "$edid_lines" | grep -iE "^[[:space:]]*Manufacturer:" | head -1 | sed 's/.*:[[:space:]]*//' | sed 's/[[:space:]]*$//')
-                        local product_code=$(echo "$edid_lines" | grep -iE "^[[:space:]]*Product code:" | head -1 | sed 's/.*:[[:space:]]*//' | sed 's/[[:space:]]*$//')
-                        if [ -n "$manufacturer" ] && [ -n "$product_code" ]; then
-                            panel_model="${manufacturer} ${product_code}"
-                        elif [ -n "$manufacturer" ]; then
-                            panel_model="$manufacturer"
                         fi
                     fi
                 fi

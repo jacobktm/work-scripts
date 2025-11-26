@@ -152,6 +152,57 @@ done
 echo "$DMI_TYPE17" > mem-info.txt
 
 # Function to collect system information for TEC score calculation
+# Function to calculate CIELUV gamut percentage from RGB and white xy coordinates
+# Formula: u' = 4x / (-2x + 12y + 3), v' = 9y / (-2x + 12y + 3)
+# Gamut area = triangle area in u'v' space using shoelace formula
+calculate_cieluv_gamut() {
+    local red_x="$1"
+    local red_y="$2"
+    local green_x="$3"
+    local green_y="$4"
+    local blue_x="$5"
+    local blue_y="$6"
+    local white_x="$7"
+    local white_y="$8"
+    
+    # Convert xy to u'v' for each primary
+    # u' = 4x / (-2x + 12y + 3)
+    # v' = 9y / (-2x + 12y + 3)
+    
+    local red_denom=$(echo "scale=10; -2 * $red_x + 12 * $red_y + 3" | bc)
+    local red_up=$(echo "scale=10; 4 * $red_x / $red_denom" | bc)
+    local red_vp=$(echo "scale=10; 9 * $red_y / $red_denom" | bc)
+    
+    local green_denom=$(echo "scale=10; -2 * $green_x + 12 * $green_y + 3" | bc)
+    local green_up=$(echo "scale=10; 4 * $green_x / $green_denom" | bc)
+    local green_vp=$(echo "scale=10; 9 * $green_y / $green_denom" | bc)
+    
+    local blue_denom=$(echo "scale=10; -2 * $blue_x + 12 * $blue_y + 3" | bc)
+    local blue_up=$(echo "scale=10; 4 * $blue_x / $blue_denom" | bc)
+    local blue_vp=$(echo "scale=10; 9 * $blue_y / $blue_denom" | bc)
+    
+    local white_denom=$(echo "scale=10; -2 * $white_x + 12 * $white_y + 3" | bc)
+    local white_up=$(echo "scale=10; 4 * $white_x / $white_denom" | bc)
+    local white_vp=$(echo "scale=10; 9 * $white_y / $white_denom" | bc)
+    
+    # Calculate triangle area using shoelace formula for triangle formed by RGB primaries
+    # Area = 0.5 * |x1(y2-y3) + x2(y3-y1) + x3(y1-y2)|
+    # Using RGB primaries as the three vertices (not white point)
+    local area=$(echo "scale=10; 0.5 * ($red_up * ($green_vp - $blue_vp) + $green_up * ($blue_vp - $red_vp) + $blue_up * ($red_vp - $green_vp))" | bc)
+    
+    # Get absolute value
+    if (( $(echo "$area < 0" | bc -l) )); then
+        area=$(echo "scale=10; -($area)" | bc)
+    fi
+    
+    # Normalize to percentage (assuming reference area for D65 white point)
+    # Standard illuminant D65 reference area in u'v' space is approximately 0.1978
+    local reference_area="0.1978"
+    local cieluv_percentage=$(echo "scale=2; ($area / $reference_area) * 100" | bc)
+    
+    echo "$cieluv_percentage"
+}
+
 collect_tec_info() {
     local output_file="t20-eut.txt"
     local json_file="t20-eut.json"
@@ -1264,30 +1315,172 @@ collect_tec_info() {
             fi
         done <<< "$(xrandr)"
         
-        # Prompt for color gamut information for each display
+        # Collect color gamut information for each display using EDID data
         echo "Collecting display color gamut information..." >&2
         declare -A display_gamuts display_contrast display_viewing
         for display_name in "${display_names[@]}"; do
             echo "" >&2
-            echo "Color gamut options for display '${display_name}':" >&2
-            echo "  A - <= 32.9% of CIELUV" >&2
-            echo "  B - > 32.9% of CIELUV (99% or more of defined sRGB colors)" >&2
-            echo "  C - > 38.4% of CIELUV (99% or more of defined Adobe RGB colors)" >&2
-            read -p "Select color gamut (A/B/C): " color_gamut_choice
-            case "${color_gamut_choice^^}" in
-                A)
+            echo "========================================" >&2
+            echo "Display: ${display_name}" >&2
+            echo "========================================" >&2
+            
+            # Extract EDID data for this display
+            local monitor_info_file=""
+            if [ -f "${HOME}/monitor-info.txt" ]; then
+                monitor_info_file="${HOME}/monitor-info.txt"
+            elif [ -f "monitor-info.txt" ]; then
+                monitor_info_file="monitor-info.txt"
+            elif [ -f "${SCRIPT_DIR}/monitor-info.txt" ]; then
+                monitor_info_file="${SCRIPT_DIR}/monitor-info.txt"
+            fi
+            
+            local edid_block_for_display=""
+            local panel_model_display=""
+            local manufacturer_display=""
+            local red_x="" red_y="" green_x="" green_y="" blue_x="" blue_y="" white_x="" white_y=""
+            
+            if [ -n "$monitor_info_file" ] && [ -f "$monitor_info_file" ]; then
+                # Find EDID block for this display
+                local found_display=false
+                local collecting_edid=false
+                
+                while IFS= read -r line; do
+                    if echo "$line" | grep -qE "^${display_name}[[:space:]]+connected"; then
+                        found_display=true
+                        collecting_edid=false
+                        edid_block_for_display=""
+                    elif [ "$found_display" = true ] && echo "$line" | grep -qE "^Block 0"; then
+                        collecting_edid=true
+                        edid_block_for_display="$line"$'\n'
+                    elif [ "$collecting_edid" = true ]; then
+                        if echo "$line" | grep -qE "^[A-Za-z0-9_-]+[[:space:]]+connected"; then
+                            break
+                        fi
+                        if echo "$line" | grep -qE "^Block [0-9]"; then
+                            break
+                        fi
+                        edid_block_for_display="${edid_block_for_display}${line}"$'\n'
+                    fi
+                done < "$monitor_info_file"
+                
+                if [ -z "$edid_block_for_display" ]; then
+                    # Fallback: use entire file if display matching fails
+                    edid_block_for_display=$(cat "$monitor_info_file")
+                fi
+                
+                # Extract panel model
+                while IFS= read -r line; do
+                    if echo "$line" | grep -qi "Alphanumeric Data String"; then
+                        local candidate=$(echo "$line" | sed -n "s/.*'\([^']*\)'.*/\1/p" | sed 's/[[:space:]]*$//')
+                        if [ -n "$candidate" ] && [ ${#candidate} -ge 5 ]; then
+                            if echo "$candidate" | grep -qE '[A-Z]{2,}[0-9].*[-_]|[0-9].*[A-Z].*[-_]'; then
+                                panel_model_display="$candidate"
+                                break
+                            fi
+                        fi
+                    fi
+                done <<< "$edid_block_for_display"
+                
+                # Extract manufacturer
+                manufacturer_display=$(echo "$edid_block_for_display" | grep -iE "^[[:space:]]*Manufacturer:" | head -1 | sed 's/.*:[[:space:]]*//' | sed 's/[[:space:]]*$//')
+                
+                # Extract color characteristics
+                # Format: "    Red  : 0.6796, 0.3203"
+                local red_line=$(echo "$edid_block_for_display" | grep -iE "^[[:space:]]*Red[[:space:]]*:" | head -1)
+                local green_line=$(echo "$edid_block_for_display" | grep -iE "^[[:space:]]*Green[[:space:]]*:" | head -1)
+                local blue_line=$(echo "$edid_block_for_display" | grep -iE "^[[:space:]]*Blue[[:space:]]*:" | head -1)
+                local white_line=$(echo "$edid_block_for_display" | grep -iE "^[[:space:]]*White[[:space:]]*:" | head -1)
+                
+                if [ -n "$red_line" ]; then
+                    red_x=$(echo "$red_line" | sed -n 's/.*:[[:space:]]*\([0-9]\+\.[0-9]\+\).*/\1/p' | awk '{print $1}')
+                    red_y=$(echo "$red_line" | sed -n 's/.*,[[:space:]]*\([0-9]\+\.[0-9]\+\).*/\1/p')
+                fi
+                if [ -n "$green_line" ]; then
+                    green_x=$(echo "$green_line" | sed -n 's/.*:[[:space:]]*\([0-9]\+\.[0-9]\+\).*/\1/p' | awk '{print $1}')
+                    green_y=$(echo "$green_line" | sed -n 's/.*,[[:space:]]*\([0-9]\+\.[0-9]\+\).*/\1/p')
+                fi
+                if [ -n "$blue_line" ]; then
+                    blue_x=$(echo "$blue_line" | sed -n 's/.*:[[:space:]]*\([0-9]\+\.[0-9]\+\).*/\1/p' | awk '{print $1}')
+                    blue_y=$(echo "$blue_line" | sed -n 's/.*,[[:space:]]*\([0-9]\+\.[0-9]\+\).*/\1/p')
+                fi
+                if [ -n "$white_line" ]; then
+                    white_x=$(echo "$white_line" | sed -n 's/.*:[[:space:]]*\([0-9]\+\.[0-9]\+\).*/\1/p' | awk '{print $1}')
+                    white_y=$(echo "$white_line" | sed -n 's/.*,[[:space:]]*\([0-9]\+\.[0-9]\+\).*/\1/p')
+                fi
+                
+                # Display detected monitor information
+                echo "Detected monitor information:" >&2
+                if [ -n "$manufacturer_display" ]; then
+                    echo "  Manufacturer: $manufacturer_display" >&2
+                fi
+                if [ -n "$panel_model_display" ]; then
+                    echo "  Panel Model: $panel_model_display" >&2
+                fi
+                if [ -n "$red_x" ] && [ -n "$red_y" ]; then
+                    echo "  Red:   $red_x, $red_y" >&2
+                    echo "  Green: $green_x, $green_y" >&2
+                    echo "  Blue:  $blue_x, $blue_y" >&2
+                    echo "  White: $white_x, $white_y" >&2
+                fi
+                echo "" >&2
+            fi
+            
+            # Prompt for luminance
+            local luminance=""
+            while [ -z "$luminance" ]; do
+                read -p "Enter display luminance (in nits or cd/m²): " luminance
+                # Validate it's a number
+                if ! echo "$luminance" | grep -qE '^[0-9]+(\.[0-9]+)?$'; then
+                    echo "Invalid input. Please enter a number." >&2
+                    luminance=""
+                fi
+            done
+            
+            # Calculate CIELUV gamut if we have all color coordinates
+            local cieluv_percentage=""
+            local gamut_classification=""
+            
+            if [ -n "$red_x" ] && [ -n "$red_y" ] && [ -n "$green_x" ] && [ -n "$green_y" ] && \
+               [ -n "$blue_x" ] && [ -n "$blue_y" ] && [ -n "$white_x" ] && [ -n "$white_y" ]; then
+                cieluv_percentage=$(calculate_cieluv_gamut "$red_x" "$red_y" "$green_x" "$green_y" "$blue_x" "$blue_y" "$white_x" "$white_y")
+                
+                # Classify based on CIELUV percentage
+                local cieluv_numeric=$(echo "$cieluv_percentage" | sed 's/^\./0./')
+                if (( $(echo "$cieluv_numeric <= 32.9" | bc -l) )); then
+                    gamut_classification="A"
                     display_gamuts["$display_name"]="A - <= 32.9% of CIELUV"
-                    ;;
-                B)
-                    display_gamuts["$display_name"]="B - > 32.9% of CIELUV (99% or more of defined sRGB colors)"
-                    ;;
-                C)
-                    display_gamuts["$display_name"]="C - > 38.4% of CIELUV (99% or more of defined Adobe RGB colors)"
-                    ;;
-                *)
-                    display_gamuts["$display_name"]="${color_gamut_choice:-null}"
-                    ;;
-            esac
+                elif (( $(echo "$cieluv_numeric <= 38.4" | bc -l) )); then
+                    gamut_classification="B"
+                    display_gamuts["$display_name"]="B - > 32.9% and <= 38.4% of CIELUV"
+                else
+                    gamut_classification="C"
+                    display_gamuts["$display_name"]="C - > 38.4% of CIELUV"
+                fi
+                
+                echo "Calculated CIELUV gamut: ${cieluv_percentage}%" >&2
+                echo "Classification: $gamut_classification" >&2
+            else
+                # Fallback to manual selection if EDID data incomplete
+                echo "EDID color data incomplete. Please select color gamut manually:" >&2
+                echo "  A - <= 32.9% of CIELUV" >&2
+                echo "  B - > 32.9% and <= 38.4% of CIELUV" >&2
+                echo "  C - > 38.4% of CIELUV" >&2
+                read -p "Select color gamut (A/B/C): " color_gamut_choice
+                case "${color_gamut_choice^^}" in
+                    A)
+                        display_gamuts["$display_name"]="A - <= 32.9% of CIELUV"
+                        ;;
+                    B)
+                        display_gamuts["$display_name"]="B - > 32.9% and <= 38.4% of CIELUV"
+                        ;;
+                    C)
+                        display_gamuts["$display_name"]="C - > 38.4% of CIELUV"
+                        ;;
+                    *)
+                        display_gamuts["$display_name"]="null"
+                        ;;
+                esac
+            fi
 
             read -p "Does display '${display_name}' meet the contrast ratio requirement (>= 60:1)? (true/false): " contrast_response
             local contrast_normalized=$(echo "${contrast_response}" | tr '[:upper:]' '[:lower:]')

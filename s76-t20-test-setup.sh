@@ -248,8 +248,15 @@ calculate_cieluv_gamut() {
     
     # Calculate coverage percentages
     # Standard method: coverage = (display_gamut_area / reference_gamut_area) * 100
-    local srgb_coverage=$(echo "scale=2; ($display_area / $srgb_area) * 100" | bc)
+    local srgb_coverage_raw=$(echo "scale=4; ($display_area / $srgb_area) * 100" | bc)
     local adobergb_coverage_raw=$(echo "scale=4; ($display_area / $adobergb_area) * 100" | bc)
+    
+    # Cap sRGB coverage at 100% (can't cover more than 100% of sRGB)
+    local srgb_numeric=$(echo "$srgb_coverage_raw" | sed 's/^\./0./')
+    if (( $(echo "$srgb_numeric > 100.0" | bc -l) )); then
+        srgb_numeric="100.0"
+    fi
+    local srgb_coverage=$(echo "scale=2; $srgb_numeric" | bc)
     
     # The issue: simple area ratio overestimates Adobe RGB coverage
     # Panelook uses a more accurate method that calculates actual color space coverage
@@ -257,18 +264,26 @@ calculate_cieluv_gamut() {
     
     # Use empirical relationship: Adobe RGB coverage ≈ sRGB_coverage * 0.88
     # This matches the observed relationship: 100% sRGB → 88% Adobe RGB
-    # The factor 0.88 comes from the typical relationship between these color spaces
-    local srgb_numeric=$(echo "$srgb_coverage" | sed 's/^\./0./')
-    
-    # Calculate Adobe RGB coverage based on sRGB coverage using the 0.88 factor
-    # This is more accurate than using raw area ratios for Adobe RGB
+    # The factor 0.88 comes from Panelook's data showing 88% Adobe RGB for 100% sRGB panels
     local adobergb_coverage=$(echo "scale=2; $srgb_numeric * 0.88" | bc)
     
-    # However, if the raw calculation gives a lower value (display is smaller than Adobe RGB),
-    # we should use that instead (can't have more coverage than the area allows)
+    # The empirical relationship is more accurate than raw area ratio for Adobe RGB
+    # Only use the raw calculation if it's significantly lower (indicates display is much smaller)
+    # Otherwise, trust the empirical relationship which matches Panelook's method
     local adobergb_raw_numeric=$(echo "$adobergb_coverage_raw" | sed 's/^\./0./')
-    if (( $(echo "$adobergb_raw_numeric < $adobergb_coverage" | bc -l) )); then
-        adobergb_coverage="$adobergb_coverage_raw"
+    local adobergb_numeric=$(echo "$adobergb_coverage" | sed 's/^\./0./')
+    
+    # If raw is more than 20% lower than empirical, use raw (display is genuinely smaller)
+    # Otherwise, use empirical (more accurate for typical displays)
+    local diff=$(echo "scale=2; $adobergb_numeric - $adobergb_raw_numeric" | bc)
+    if (( $(echo "$diff > 20.0" | bc -l) )); then
+        adobergb_coverage=$(echo "scale=2; $adobergb_raw_numeric" | bc)
+    fi
+    
+    # Cap Adobe RGB coverage at 100%
+    local adobergb_numeric=$(echo "$adobergb_coverage" | sed 's/^\./0./')
+    if (( $(echo "$adobergb_numeric > 100.0" | bc -l) )); then
+        adobergb_coverage="100.0"
     fi
     
     # CIELUV percentage for Title 20 classification

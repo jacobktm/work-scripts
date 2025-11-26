@@ -130,7 +130,7 @@ else
 fi
 
 # Install necessary packages
-./install.sh git inxi powertop edid-decode ethtool jq bc
+"$SCRIPT_DIR/install.sh" git inxi powertop edid-decode ethtool jq bc
 cd $HOME
 if [ -e system76-ee ]; then
   rm -rvf system76-ee

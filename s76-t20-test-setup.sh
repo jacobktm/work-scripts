@@ -1346,8 +1346,15 @@ collect_tec_info() {
             
             # Get panel identifier from EDID (monitor-info.txt)
             local panel_model=""
-            local monitor_info_file="${HOME}/monitor-info.txt"
-            if [ -f "$monitor_info_file" ]; then
+            # Check for monitor-info.txt in home directory or current directory
+            local monitor_info_file=""
+            if [ -f "${HOME}/monitor-info.txt" ]; then
+                monitor_info_file="${HOME}/monitor-info.txt"
+            elif [ -f "monitor-info.txt" ]; then
+                monitor_info_file="monitor-info.txt"
+            fi
+            
+            if [ -n "$monitor_info_file" ] && [ -f "$monitor_info_file" ]; then
                 # Find the EDID block for this display
                 # xrandr --verbose | edid-decode outputs each display's EDID in sections
                 # The display name appears in xrandr output, followed by EDID decoded data
@@ -1369,10 +1376,19 @@ collect_tec_info() {
                             edid_lines="$line"$'\n'
                         fi
                     elif [ "$collect_lines" = true ]; then
-                        # Stop collecting when we hit another display connection line
+                        # Stop collecting when we hit another display connection line (different display)
                         if echo "$line" | grep -qE "^[A-Za-z0-9_-]+[[:space:]]+connected"; then
                             local other_display=$(echo "$line" | grep -oE "^[A-Za-z0-9_-]+")
-                            if [ "$other_display" != "$display_name" ]; then
+                            if [ -n "$other_display" ] && [ "$other_display" != "$display_name" ]; then
+                                break
+                            fi
+                        fi
+                        # Also stop if we hit a new Block/EDID section for a different display
+                        if echo "$line" | grep -qE "^Block [0-9]"; then
+                            # If we've already collected some EDID data, this might be a new display
+                            # But if we're still in the same display's EDID block, continue
+                            if [ -n "$edid_lines" ] && echo "$edid_lines" | grep -q "Block 0"; then
+                                # We already have a complete block, stop here
                                 break
                             fi
                         fi
@@ -1491,13 +1507,21 @@ collect_tec_info() {
             fi
             
             local color_gamut="${display_gamuts[$display_name]:-null}"
+            # Get contrast value - check if key exists and has non-empty value
             local contrast_value="null"
-            if [ -n "${display_contrast[$display_name]}" ]; then
-                contrast_value="${display_contrast[$display_name]}"
+            if [[ -v "display_contrast[$display_name]" ]]; then
+                local contrast_stored="${display_contrast[$display_name]}"
+                if [ -n "$contrast_stored" ]; then
+                    contrast_value="$contrast_stored"
+                fi
             fi
+            # Get viewing angle value - check if key exists and has non-empty value
             local viewing_value="null"
-            if [ -n "${display_viewing[$display_name]}" ]; then
-                viewing_value="${display_viewing[$display_name]}"
+            if [[ -v "display_viewing[$display_name]" ]]; then
+                local viewing_stored="${display_viewing[$display_name]}"
+                if [ -n "$viewing_stored" ]; then
+                    viewing_value="$viewing_stored"
+                fi
             fi
             local display_lines=()
             display_lines+=("\"name\": \"${display_name}\"")

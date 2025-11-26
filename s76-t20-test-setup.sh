@@ -1381,16 +1381,39 @@ collect_tec_info() {
                 done < "$monitor_info_file"
                 
                 # Extract monitor name/model from the EDID block
-                # edid-decode outputs fields like "Monitor name:", "Product name:", etc.
+                # edid-decode outputs fields like "Alphanumeric Data String:", "Monitor name:", etc.
                 if [ -n "$edid_lines" ]; then
-                    # Try to find monitor name in various common formats
-                    local monitor_name_line=$(echo "$edid_lines" | grep -iE "(Monitor name|Display name|Product name)" | head -1)
-                    if [ -n "$monitor_name_line" ]; then
-                        # Extract value after colon
-                        panel_model=$(echo "$monitor_name_line" | sed 's/.*:[[:space:]]*//' | sed 's/[[:space:]]*$//' | head -1)
+                    # First, try to find panel identifier from "Alphanumeric Data String" entries
+                    # These often contain the panel model number (e.g., "NE173QHM-NZ1")
+                    # Look for strings that contain numbers and look like model identifiers
+                    while IFS= read -r line; do
+                        if echo "$line" | grep -qi "Alphanumeric Data String"; then
+                            # Extract the value between single quotes: 'VALUE'
+                            local candidate=$(echo "$line" | sed -n "s/.*'\([^']*\)'.*/\1/p" | sed 's/[[:space:]]*$//')
+                            if [ -n "$candidate" ] && [ ${#candidate} -ge 3 ]; then
+                                # Prefer strings that contain numbers and dashes/underscores (typical panel model format)
+                                # Pattern: letters+numbers+dashes, e.g., "NE173QHM-NZ1"
+                                if echo "$candidate" | grep -qE '[0-9].*[-_]|[A-Z]{2,}[0-9]|[0-9][A-Z]{2,}'; then
+                                    panel_model="$candidate"
+                                    break
+                                elif [ -z "$panel_model" ]; then
+                                    # Keep the first reasonable candidate as fallback
+                                    panel_model="$candidate"
+                                fi
+                            fi
+                        fi
+                    done <<< "$edid_lines"
+                    
+                    # If no alphanumeric data string found, try other common formats
+                    if [ -z "$panel_model" ] || [ "$panel_model" = "" ]; then
+                        local monitor_name_line=$(echo "$edid_lines" | grep -iE "(Monitor name|Display name|Product name)" | head -1)
+                        if [ -n "$monitor_name_line" ]; then
+                            # Extract value after colon
+                            panel_model=$(echo "$monitor_name_line" | sed 's/.*:[[:space:]]*//' | sed 's/[[:space:]]*$//' | head -1)
+                        fi
                     fi
                     
-                    # Fallback: try manufacturer + product code if no name found
+                    # Final fallback: try manufacturer + product code
                     if [ -z "$panel_model" ] || [ "$panel_model" = "" ]; then
                         local manufacturer=$(echo "$edid_lines" | grep -iE "^[[:space:]]*Manufacturer:" | head -1 | sed 's/.*:[[:space:]]*//' | sed 's/[[:space:]]*$//')
                         local product_code=$(echo "$edid_lines" | grep -iE "^[[:space:]]*Product code:" | head -1 | sed 's/.*:[[:space:]]*//' | sed 's/[[:space:]]*$//')

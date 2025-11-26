@@ -1344,6 +1344,65 @@ collect_tec_info() {
             local width_mm=""
             local height_mm=""
             
+            # Get panel identifier from EDID (monitor-info.txt)
+            local panel_model=""
+            local monitor_info_file="${HOME}/monitor-info.txt"
+            if [ -f "$monitor_info_file" ]; then
+                # Find the EDID block for this display
+                # xrandr --verbose | edid-decode outputs each display's EDID in sections
+                # The display name appears in xrandr output, followed by EDID decoded data
+                local found_display=false
+                local collect_lines=false
+                local edid_lines=""
+                
+                while IFS= read -r line; do
+                    # Look for the display name in xrandr output format: "DISPLAY_NAME connected"
+                    if echo "$line" | grep -qE "^${display_name}[[:space:]]+connected"; then
+                        found_display=true
+                        collect_lines=true
+                        edid_lines="$line"$'\n'
+                    # Also check for display name appearing in other contexts
+                    elif echo "$line" | grep -qE "^[[:space:]]*${display_name}[[:space:]]"; then
+                        if [ "$found_display" = false ]; then
+                            found_display=true
+                            collect_lines=true
+                            edid_lines="$line"$'\n'
+                        fi
+                    elif [ "$collect_lines" = true ]; then
+                        # Stop collecting when we hit another display connection line
+                        if echo "$line" | grep -qE "^[A-Za-z0-9_-]+[[:space:]]+connected"; then
+                            local other_display=$(echo "$line" | grep -oE "^[A-Za-z0-9_-]+")
+                            if [ "$other_display" != "$display_name" ]; then
+                                break
+                            fi
+                        fi
+                        edid_lines="${edid_lines}${line}"$'\n'
+                    fi
+                done < "$monitor_info_file"
+                
+                # Extract monitor name/model from the EDID block
+                # edid-decode outputs fields like "Monitor name:", "Product name:", etc.
+                if [ -n "$edid_lines" ]; then
+                    # Try to find monitor name in various common formats
+                    local monitor_name_line=$(echo "$edid_lines" | grep -iE "(Monitor name|Display name|Product name)" | head -1)
+                    if [ -n "$monitor_name_line" ]; then
+                        # Extract value after colon
+                        panel_model=$(echo "$monitor_name_line" | sed 's/.*:[[:space:]]*//' | sed 's/[[:space:]]*$//' | head -1)
+                    fi
+                    
+                    # Fallback: try manufacturer + product code if no name found
+                    if [ -z "$panel_model" ] || [ "$panel_model" = "" ]; then
+                        local manufacturer=$(echo "$edid_lines" | grep -iE "^[[:space:]]*Manufacturer:" | head -1 | sed 's/.*:[[:space:]]*//' | sed 's/[[:space:]]*$//')
+                        local product_code=$(echo "$edid_lines" | grep -iE "^[[:space:]]*Product code:" | head -1 | sed 's/.*:[[:space:]]*//' | sed 's/[[:space:]]*$//')
+                        if [ -n "$manufacturer" ] && [ -n "$product_code" ]; then
+                            panel_model="${manufacturer} ${product_code}"
+                        elif [ -n "$manufacturer" ]; then
+                            panel_model="$manufacturer"
+                        fi
+                    fi
+                fi
+            fi
+            
             # Check for inxi.txt in home directory (where script generates it)
             local inxi_file="${HOME}/inxi.txt"
             if [ -f "$inxi_file" ]; then
@@ -1419,6 +1478,11 @@ collect_tec_info() {
             fi
             local display_lines=()
             display_lines+=("\"name\": \"${display_name}\"")
+            if [ -n "$panel_model" ]; then
+                display_lines+=("\"model\": \"${panel_model}\"")
+            else
+                display_lines+=("\"model\": null")
+            fi
             display_lines+=("\"resolution\": \"${resolution}\"")
             display_lines+=("\"width_px\": ${width:-null}")
             display_lines+=("\"height_px\": ${height:-null}")

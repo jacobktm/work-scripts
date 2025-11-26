@@ -153,8 +153,9 @@ echo "$DMI_TYPE17" > mem-info.txt
 
 # Function to collect system information for TEC score calculation
 # Function to calculate CIELUV gamut percentage from RGB and white xy coordinates
+# This calculates the coverage percentage relative to sRGB/Adobe RGB color spaces
 # Formula: u' = 4x / (-2x + 12y + 3), v' = 9y / (-2x + 12y + 3)
-# Gamut area = triangle area in u'v' space using shoelace formula
+# CIELUV percentage = (display gamut area / reference gamut area) * 100
 calculate_cieluv_gamut() {
     local red_x="$1"
     local red_y="$2"
@@ -165,42 +166,99 @@ calculate_cieluv_gamut() {
     local white_x="$7"
     local white_y="$8"
     
-    # Convert xy to u'v' for each primary
-    # u' = 4x / (-2x + 12y + 3)
-    # v' = 9y / (-2x + 12y + 3)
+    # Helper function to convert xy to u'v'
+    xy_to_uv() {
+        local x="$1"
+        local y="$2"
+        local denom=$(echo "scale=10; -2 * $x + 12 * $y + 3" | bc)
+        local up=$(echo "scale=10; 4 * $x / $denom" | bc)
+        local vp=$(echo "scale=10; 9 * $y / $denom" | bc)
+        echo "$up $vp"
+    }
     
-    local red_denom=$(echo "scale=10; -2 * $red_x + 12 * $red_y + 3" | bc)
-    local red_up=$(echo "scale=10; 4 * $red_x / $red_denom" | bc)
-    local red_vp=$(echo "scale=10; 9 * $red_y / $red_denom" | bc)
+    # Helper function to calculate triangle area from three u'v' points
+    triangle_area() {
+        local u1="$1"
+        local v1="$2"
+        local u2="$3"
+        local v2="$4"
+        local u3="$5"
+        local v3="$6"
+        local area=$(echo "scale=10; 0.5 * ($u1 * ($v2 - $v3) + $u2 * ($v3 - $v1) + $u3 * ($v1 - $v2))" | bc)
+        # Get absolute value
+        if (( $(echo "$area < 0" | bc -l) )); then
+            area=$(echo "scale=10; -($area)" | bc)
+        fi
+        echo "$area"
+    }
     
-    local green_denom=$(echo "scale=10; -2 * $green_x + 12 * $green_y + 3" | bc)
-    local green_up=$(echo "scale=10; 4 * $green_x / $green_denom" | bc)
-    local green_vp=$(echo "scale=10; 9 * $green_y / $green_denom" | bc)
+    # Convert display RGB primaries to u'v'
+    local red_uv=$(xy_to_uv "$red_x" "$red_y")
+    local red_up=$(echo "$red_uv" | awk '{print $1}')
+    local red_vp=$(echo "$red_uv" | awk '{print $2}')
     
-    local blue_denom=$(echo "scale=10; -2 * $blue_x + 12 * $blue_y + 3" | bc)
-    local blue_up=$(echo "scale=10; 4 * $blue_x / $blue_denom" | bc)
-    local blue_vp=$(echo "scale=10; 9 * $blue_y / $blue_denom" | bc)
+    local green_uv=$(xy_to_uv "$green_x" "$green_y")
+    local green_up=$(echo "$green_uv" | awk '{print $1}')
+    local green_vp=$(echo "$green_uv" | awk '{print $2}')
     
-    local white_denom=$(echo "scale=10; -2 * $white_x + 12 * $white_y + 3" | bc)
-    local white_up=$(echo "scale=10; 4 * $white_x / $white_denom" | bc)
-    local white_vp=$(echo "scale=10; 9 * $white_y / $white_denom" | bc)
+    local blue_uv=$(xy_to_uv "$blue_x" "$blue_y")
+    local blue_up=$(echo "$blue_uv" | awk '{print $1}')
+    local blue_vp=$(echo "$blue_uv" | awk '{print $2}')
     
-    # Calculate triangle area using shoelace formula for triangle formed by RGB primaries
-    # Area = 0.5 * |x1(y2-y3) + x2(y3-y1) + x3(y1-y2)|
-    # Using RGB primaries as the three vertices (not white point)
-    local area=$(echo "scale=10; 0.5 * ($red_up * ($green_vp - $blue_vp) + $green_up * ($blue_vp - $red_vp) + $blue_up * ($red_vp - $green_vp))" | bc)
+    # Calculate display gamut triangle area
+    local display_area=$(triangle_area "$red_up" "$red_vp" "$green_up" "$green_vp" "$blue_up" "$blue_vp")
     
-    # Get absolute value
-    if (( $(echo "$area < 0" | bc -l) )); then
-        area=$(echo "scale=10; -($area)" | bc)
-    fi
+    # Standard sRGB primaries (D65 white point, Rec. 709)
+    # Red:   x=0.640, y=0.330
+    # Green: x=0.300, y=0.600
+    # Blue:  x=0.150, y=0.060
+    local srgb_red_uv=$(xy_to_uv "0.640" "0.330")
+    local srgb_red_up=$(echo "$srgb_red_uv" | awk '{print $1}')
+    local srgb_red_vp=$(echo "$srgb_red_uv" | awk '{print $2}')
     
-    # Normalize to percentage (assuming reference area for D65 white point)
-    # Standard illuminant D65 reference area in u'v' space is approximately 0.1978
-    local reference_area="0.1978"
-    local cieluv_percentage=$(echo "scale=2; ($area / $reference_area) * 100" | bc)
+    local srgb_green_uv=$(xy_to_uv "0.300" "0.600")
+    local srgb_green_up=$(echo "$srgb_green_uv" | awk '{print $1}')
+    local srgb_green_vp=$(echo "$srgb_green_uv" | awk '{print $2}')
     
-    echo "$cieluv_percentage"
+    local srgb_blue_uv=$(xy_to_uv "0.150" "0.060")
+    local srgb_blue_up=$(echo "$srgb_blue_uv" | awk '{print $1}')
+    local srgb_blue_vp=$(echo "$srgb_blue_uv" | awk '{print $2}')
+    
+    # Calculate sRGB gamut triangle area
+    local srgb_area=$(triangle_area "$srgb_red_up" "$srgb_red_vp" "$srgb_green_up" "$srgb_green_vp" "$srgb_blue_up" "$srgb_blue_vp")
+    
+    # Standard Adobe RGB primaries (D65 white point)
+    # Red:   x=0.6400, y=0.3300
+    # Green: x=0.2100, y=0.7100
+    # Blue:  x=0.1500, y=0.0600
+    local adobergb_red_uv=$(xy_to_uv "0.6400" "0.3300")
+    local adobergb_red_up=$(echo "$adobergb_red_uv" | awk '{print $1}')
+    local adobergb_red_vp=$(echo "$adobergb_red_uv" | awk '{print $2}')
+    
+    local adobergb_green_uv=$(xy_to_uv "0.2100" "0.7100")
+    local adobergb_green_up=$(echo "$adobergb_green_uv" | awk '{print $1}')
+    local adobergb_green_vp=$(echo "$adobergb_green_uv" | awk '{print $2}')
+    
+    local adobergb_blue_uv=$(xy_to_uv "0.1500" "0.0600")
+    local adobergb_blue_up=$(echo "$adobergb_blue_uv" | awk '{print $1}')
+    local adobergb_blue_vp=$(echo "$adobergb_blue_uv" | awk '{print $2}')
+    
+    # Calculate Adobe RGB gamut triangle area
+    local adobergb_area=$(triangle_area "$adobergb_red_up" "$adobergb_red_vp" "$adobergb_green_up" "$adobergb_green_vp" "$adobergb_blue_up" "$adobergb_blue_vp")
+    
+    # Calculate coverage percentages
+    local srgb_coverage=$(echo "scale=2; ($display_area / $srgb_area) * 100" | bc)
+    local adobergb_coverage=$(echo "scale=2; ($display_area / $adobergb_area) * 100" | bc)
+    
+    # CIELUV percentage for Title 20 classification
+    # The CIELUV percentage thresholds (32.9% and 38.4%) correspond to:
+    # - 32.9% CIELUV ≈ 90% sRGB coverage
+    # - 38.4% CIELUV ≈ 90% Adobe RGB coverage
+    # We'll use the sRGB coverage as the base CIELUV percentage
+    local cieluv_percentage="$srgb_coverage"
+    
+    # Output: CIELUV percentage, sRGB coverage, Adobe RGB coverage
+    echo "$cieluv_percentage|$srgb_coverage|$adobergb_coverage"
 }
 
 collect_tec_info() {
@@ -1438,26 +1496,45 @@ collect_tec_info() {
             
             # Calculate CIELUV gamut if we have all color coordinates
             local cieluv_percentage=""
+            local srgb_coverage=""
+            local adobergb_coverage=""
             local gamut_classification=""
             
             if [ -n "$red_x" ] && [ -n "$red_y" ] && [ -n "$green_x" ] && [ -n "$green_y" ] && \
                [ -n "$blue_x" ] && [ -n "$blue_y" ] && [ -n "$white_x" ] && [ -n "$white_y" ]; then
-                cieluv_percentage=$(calculate_cieluv_gamut "$red_x" "$red_y" "$green_x" "$green_y" "$blue_x" "$blue_y" "$white_x" "$white_y")
+                local result=$(calculate_cieluv_gamut "$red_x" "$red_y" "$green_x" "$green_y" "$blue_x" "$blue_y" "$white_x" "$white_y")
+                cieluv_percentage=$(echo "$result" | cut -d'|' -f1)
+                srgb_coverage=$(echo "$result" | cut -d'|' -f2)
+                adobergb_coverage=$(echo "$result" | cut -d'|' -f3)
                 
-                # Classify based on CIELUV percentage
+                # Classify based on Title 20 requirements:
+                # A: <= 32.9% CIELUV (<= 90% sRGB coverage)
+                # B: > 32.9% CIELUV and <= 38.4% CIELUV (> 90% sRGB but <= 90% Adobe RGB)
+                # C: > 38.4% CIELUV (> 90% Adobe RGB coverage)
+                # We use sRGB coverage to determine if > 32.9% threshold
+                # We use Adobe RGB coverage to determine if > 38.4% threshold
                 local cieluv_numeric=$(echo "$cieluv_percentage" | sed 's/^\./0./')
-                if (( $(echo "$cieluv_numeric <= 32.9" | bc -l) )); then
+                local srgb_numeric=$(echo "$srgb_coverage" | sed 's/^\./0./')
+                local adobergb_numeric=$(echo "$adobergb_coverage" | sed 's/^\./0./')
+                
+                # Check thresholds: 32.9% CIELUV ≈ 90% sRGB, 38.4% CIELUV ≈ 90% Adobe RGB
+                # Use actual coverage percentages for classification
+                if (( $(echo "$srgb_numeric <= 90.0" | bc -l) )); then
                     gamut_classification="A"
-                    display_gamuts["$display_name"]="A - <= 32.9% of CIELUV"
-                elif (( $(echo "$cieluv_numeric <= 38.4" | bc -l) )); then
+                    display_gamuts["$display_name"]="A - <= 32.9% CIELUV (<= 90% sRGB)"
+                elif (( $(echo "$adobergb_numeric <= 90.0" | bc -l) )); then
+                    # > 90% sRGB but <= 90% Adobe RGB
                     gamut_classification="B"
-                    display_gamuts["$display_name"]="B - > 32.9% and <= 38.4% of CIELUV"
+                    display_gamuts["$display_name"]="B - > 32.9% and <= 38.4% CIELUV (> 90% sRGB, <= 90% Adobe RGB)"
                 else
+                    # > 90% Adobe RGB
                     gamut_classification="C"
-                    display_gamuts["$display_name"]="C - > 38.4% of CIELUV"
+                    display_gamuts["$display_name"]="C - > 38.4% CIELUV (> 90% Adobe RGB)"
                 fi
                 
                 echo "Calculated CIELUV gamut: ${cieluv_percentage}%" >&2
+                echo "sRGB coverage: ${srgb_coverage}%" >&2
+                echo "Adobe RGB coverage: ${adobergb_coverage}%" >&2
                 echo "Classification: $gamut_classification" >&2
             else
                 # Fallback to manual selection if EDID data incomplete

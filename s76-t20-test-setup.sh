@@ -1519,6 +1519,15 @@ collect_tec_info() {
                 echo "" >&2
             fi
             
+            # Display panel information and Google search link before luminance prompt
+            if [ -n "$panel_model_display" ]; then
+                echo "Panel Model: $panel_model_display" >&2
+                # Create Google search URL for the panel (URL encode spaces and special characters)
+                local search_query=$(echo "$panel_model_display" | sed 's/ /%20/g')
+                echo "Google search: https://www.google.com/search?q=${search_query}" >&2
+                echo "" >&2
+            fi
+            
             # Prompt for luminance
             local luminance=""
             while [ -z "$luminance" ]; do

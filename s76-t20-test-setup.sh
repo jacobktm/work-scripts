@@ -1299,7 +1299,7 @@ collect_tec_info() {
                     display_contrast["$display_name"]="false"
                     ;;
                 *)
-                    display_contrast["$display_name"]=""
+                    # Don't set anything for invalid input - leave it unset so it defaults to null
                     ;;
             esac
 
@@ -1313,7 +1313,7 @@ collect_tec_info() {
                     display_viewing["$display_name"]="false"
                     ;;
                 *)
-                    display_viewing["$display_name"]=""
+                    # Don't set anything for invalid input - leave it unset so it defaults to null
                     ;;
             esac
         done
@@ -1507,25 +1507,26 @@ collect_tec_info() {
             fi
             
             local color_gamut="${display_gamuts[$display_name]:-null}"
-            # Get contrast value - check if key exists and has non-empty value
+            
+            # Get contrast value - access array directly, default to null if not set or empty
+            local contrast_stored="${display_contrast[$display_name]:-}"
             local contrast_value="null"
-            if [[ -v "display_contrast[$display_name]" ]]; then
-                local contrast_stored="${display_contrast[$display_name]}"
-                if [ -n "$contrast_stored" ]; then
-                    contrast_value="$contrast_stored"
-                fi
+            if [ "${contrast_stored}" = "true" ] || [ "${contrast_stored}" = "false" ]; then
+                contrast_value="${contrast_stored}"
             fi
-            # Get viewing angle value - check if key exists and has non-empty value
+            
+            # Get viewing angle value - access array directly, default to null if not set or empty
+            local viewing_stored="${display_viewing[$display_name]:-}"
             local viewing_value="null"
-            if [[ -v "display_viewing[$display_name]" ]]; then
-                local viewing_stored="${display_viewing[$display_name]}"
-                if [ -n "$viewing_stored" ]; then
-                    viewing_value="$viewing_stored"
-                fi
+            if [ "${viewing_stored}" = "true" ] || [ "${viewing_stored}" = "false" ]; then
+                viewing_value="${viewing_stored}"
             fi
+            
             local display_lines=()
             display_lines+=("\"name\": \"${display_name}\"")
-            if [ -n "$panel_model" ]; then
+            
+            # Get panel model - check if it was successfully extracted
+            if [ -n "$panel_model" ] && [ "$panel_model" != "" ]; then
                 display_lines+=("\"model\": \"${panel_model}\"")
             else
                 display_lines+=("\"model\": null")

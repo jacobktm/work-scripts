@@ -1551,15 +1551,14 @@ collect_tec_info() {
                 # Calculate aspect ratio
                 local aspect_ratio=$(echo "scale=10; ${width_px} / ${height_px}" | bc)
                 
-                # Calculate width and height using: diagonal^2 = width^2 + height^2
-                # and width = height * aspect_ratio
-                # So: diagonal^2 = (height * aspect_ratio)^2 + height^2
-                #     diagonal^2 = height^2 * (aspect_ratio^2 + 1)
-                #     height = diagonal / sqrt(aspect_ratio^2 + 1)
-                local aspect_squared=$(echo "scale=10; ${aspect_ratio} * ${aspect_ratio}" | bc)
-                local denominator=$(echo "scale=10; sqrt(${aspect_squared} + 1)" | bc -l)
-                local height_calc=$(echo "scale=2; ${diagonal_input} / ${denominator}" | bc)
-                local width_calc=$(echo "scale=2; ${height_calc} * ${aspect_ratio}" | bc)
+                # Calculate theta in radians: theta = atan(aspect_ratio)
+                local theta=$(echo "scale=10; a(${aspect_ratio})" | bc -l)
+                
+                # Calculate width and height using trigonometric functions
+                # width = diagonal * sin(theta)
+                # height = diagonal * cos(theta)
+                local width_calc=$(echo "scale=2; ${diagonal_input} * s(${theta})" | bc -l)
+                local height_calc=$(echo "scale=2; ${diagonal_input} * c(${theta})" | bc -l)
                 
                 display_width_inches["$display_name"]="$width_calc"
                 display_height_inches["$display_name"]="$height_calc"

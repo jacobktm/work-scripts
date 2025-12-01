@@ -1411,7 +1411,7 @@ collect_tec_info() {
         
         # Collect color gamut information for each display using EDID data
         echo "Collecting display color gamut information..." >&2
-        declare -A display_gamuts display_contrast display_viewing
+        declare -A display_gamuts display_contrast display_viewing display_diagonal display_width_inches display_height_inches display_area_inches
         for display_name in "${display_names[@]}"; do
             echo "" >&2
             echo "========================================" >&2
@@ -1526,6 +1526,47 @@ collect_tec_info() {
                 local search_query=$(echo "$panel_model_display" | sed 's/ /%20/g')
                 echo "Google search: https://www.google.com/search?q=${search_query}" >&2
                 echo "" >&2
+            fi
+            
+            # Get resolution for aspect ratio calculation
+            local xrandr_line=$(xrandr | grep "^${display_name}.* connected")
+            local resolution_px=$(echo "$xrandr_line" | grep -oE '[0-9]+x[0-9]+' | head -1)
+            local width_px=$(echo "$resolution_px" | cut -dx -f1)
+            local height_px=$(echo "$resolution_px" | cut -dx -f2)
+            
+            # Prompt for diagonal in inches
+            local diagonal_input=""
+            while [ -z "$diagonal_input" ]; do
+                read -p "Enter display diagonal (in inches): " diagonal_input
+                # Validate it's a number
+                if ! echo "$diagonal_input" | grep -qE '^[0-9]+(\.[0-9]+)?$'; then
+                    echo "Invalid input. Please enter a number." >&2
+                    diagonal_input=""
+                fi
+            done
+            display_diagonal["$display_name"]="$diagonal_input"
+            
+            # Calculate width and height in inches from diagonal and aspect ratio
+            if [ -n "$width_px" ] && [ -n "$height_px" ] && [ -n "$diagonal_input" ]; then
+                # Calculate aspect ratio
+                local aspect_ratio=$(echo "scale=10; ${width_px} / ${height_px}" | bc)
+                
+                # Calculate width and height using: diagonal^2 = width^2 + height^2
+                # and width = height * aspect_ratio
+                # So: diagonal^2 = (height * aspect_ratio)^2 + height^2
+                #     diagonal^2 = height^2 * (aspect_ratio^2 + 1)
+                #     height = diagonal / sqrt(aspect_ratio^2 + 1)
+                local aspect_squared=$(echo "scale=10; ${aspect_ratio} * ${aspect_ratio}" | bc)
+                local denominator=$(echo "scale=10; sqrt(${aspect_squared} + 1)" | bc -l)
+                local height_calc=$(echo "scale=2; ${diagonal_input} / ${denominator}" | bc)
+                local width_calc=$(echo "scale=2; ${height_calc} * ${aspect_ratio}" | bc)
+                
+                display_width_inches["$display_name"]="$width_calc"
+                display_height_inches["$display_name"]="$height_calc"
+                
+                # Calculate area in square inches
+                local area_calc=$(echo "scale=2; ${width_calc} * ${height_calc}" | bc)
+                display_area_inches["$display_name"]="$area_calc"
             fi
             
             # Prompt for luminance
@@ -1651,11 +1692,11 @@ collect_tec_info() {
                 megapixels=$(echo "scale=2; (${width} * ${height}) / 1000000" | bc 2>/dev/null || echo "")
             fi
             
-            # Get physical dimensions from inxi.txt (more reliable than EDID)
-            local width_inches=""
-            local height_inches=""
-            local diagonal_inches=""
-            local area_square_inches=""
+            # Get physical dimensions - use prompted values if available, otherwise fall back to inxi.txt
+            local width_inches="${display_width_inches[$display_name]:-}"
+            local height_inches="${display_height_inches[$display_name]:-}"
+            local diagonal_inches="${display_diagonal[$display_name]:-}"
+            local area_square_inches="${display_area_inches[$display_name]:-}"
             local width_mm=""
             local height_mm=""
             
@@ -1785,33 +1826,38 @@ collect_tec_info() {
                 done < "$inxi_file"
                 
                 if [ -n "$monitor_block" ]; then
-                    # Extract size: format is "size: 381x214mm (15.0x8.4")"
-                    local size_line=$(echo "$monitor_block" | grep -i "size:")
-                    if [ -n "$size_line" ]; then
-                        # Extract width and height in inches from the parentheses
-                        local size_inches=$(echo "$size_line" | grep -oE '\([0-9]+\.[0-9]+x[0-9]+\.[0-9]+"' | sed 's/[()"]//g')
-                        if [ -n "$size_inches" ]; then
-                            width_inches=$(echo "$size_inches" | cut -dx -f1)
-                            height_inches=$(echo "$size_inches" | cut -dx -f2)
+                    # Only extract from inxi if we don't have prompted values
+                    if [ -z "$width_inches" ] || [ -z "$height_inches" ] || [ -z "$diagonal_inches" ]; then
+                        # Extract size: format is "size: 381x214mm (15.0x8.4")"
+                        local size_line=$(echo "$monitor_block" | grep -i "size:")
+                        if [ -n "$size_line" ]; then
+                            # Extract width and height in inches from the parentheses
+                            local size_inches=$(echo "$size_line" | grep -oE '\([0-9]+\.[0-9]+x[0-9]+\.[0-9]+"' | sed 's/[()"]//g')
+                            if [ -n "$size_inches" ] && [ -z "$width_inches" ]; then
+                                width_inches=$(echo "$size_inches" | cut -dx -f1)
+                                height_inches=$(echo "$size_inches" | cut -dx -f2)
+                            fi
+                            
+                            # Extract width and height in mm
+                            local size_mm=$(echo "$size_line" | grep -oE '[0-9]+x[0-9]+mm' | sed 's/mm//')
+                            if [ -n "$size_mm" ]; then
+                                width_mm=$(echo "$size_mm" | cut -dx -f1)
+                                height_mm=$(echo "$size_mm" | cut -dx -f2)
+                            fi
                         fi
                         
-                        # Extract width and height in mm
-                        local size_mm=$(echo "$size_line" | grep -oE '[0-9]+x[0-9]+mm' | sed 's/mm//')
-                        if [ -n "$size_mm" ]; then
-                            width_mm=$(echo "$size_mm" | cut -dx -f1)
-                            height_mm=$(echo "$size_mm" | cut -dx -f2)
+                        # Extract diagonal: format is "diag: 437mm (17.2")"
+                        if [ -z "$diagonal_inches" ]; then
+                            local diag_line=$(echo "$monitor_block" | grep -i "diag:")
+                            if [ -n "$diag_line" ]; then
+                                diagonal_inches=$(echo "$diag_line" | grep -oE '\([0-9]+\.[0-9]+"' | sed 's/[()"]//g')
+                            fi
                         fi
-                    fi
-                    
-                    # Extract diagonal: format is "diag: 437mm (17.2")"
-                    local diag_line=$(echo "$monitor_block" | grep -i "diag:")
-                    if [ -n "$diag_line" ]; then
-                        diagonal_inches=$(echo "$diag_line" | grep -oE '\([0-9]+\.[0-9]+"' | sed 's/[()"]//g')
-                    fi
-                    
-                    # Calculate area in square inches if we have width and height
-                    if [ -n "$width_inches" ] && [ -n "$height_inches" ]; then
-                        area_square_inches=$(echo "scale=2; ${width_inches} * ${height_inches}" | bc 2>/dev/null || echo "")
+                        
+                        # Calculate area in square inches if we have width and height but not area
+                        if [ -z "$area_square_inches" ] && [ -n "$width_inches" ] && [ -n "$height_inches" ]; then
+                            area_square_inches=$(echo "scale=2; ${width_inches} * ${height_inches}" | bc 2>/dev/null || echo "")
+                        fi
                     fi
                 fi
             fi
@@ -1847,10 +1893,26 @@ collect_tec_info() {
             display_lines+=("\"megapixels\": ${megapixels:-null}")
             display_lines+=("\"width_mm\": ${width_mm:-null}")
             display_lines+=("\"height_mm\": ${height_mm:-null}")
-            display_lines+=("\"width_inches\": ${width_inches:-null}")
-            display_lines+=("\"height_inches\": ${height_inches:-null}")
-            display_lines+=("\"diagonal_inches\": ${diagonal_inches:-null}")
-            display_lines+=("\"area_square_inches\": ${area_square_inches:-null}")
+            if [ -n "$width_inches" ]; then
+                display_lines+=("\"width_inches\": ${width_inches}")
+            else
+                display_lines+=("\"width_inches\": null")
+            fi
+            if [ -n "$height_inches" ]; then
+                display_lines+=("\"height_inches\": ${height_inches}")
+            else
+                display_lines+=("\"height_inches\": null")
+            fi
+            if [ -n "$diagonal_inches" ]; then
+                display_lines+=("\"diagonal_inches\": ${diagonal_inches}")
+            else
+                display_lines+=("\"diagonal_inches\": null")
+            fi
+            if [ -n "$area_square_inches" ]; then
+                display_lines+=("\"area_square_inches\": ${area_square_inches}")
+            else
+                display_lines+=("\"area_square_inches\": null")
+            fi
             display_lines+=("\"contrast_ratio_requirement_met\": ${contrast_value}")
             display_lines+=("\"viewing_angle_requirement_met\": ${viewing_value}")
             display_lines+=("\"color_gamut\": \"${color_gamut}\"")

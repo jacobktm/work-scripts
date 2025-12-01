@@ -130,7 +130,24 @@ else
 fi
 
 # Install necessary packages
-"$SCRIPT_DIR/install.sh" git inxi powertop edid-decode ethtool jq bc
+# Try to use install.sh if it exists, otherwise fall back to direct apt install
+if [ -f "$SCRIPT_DIR/install.sh" ]; then
+    "$SCRIPT_DIR/install.sh" git inxi powertop edid-decode ethtool jq bc
+else
+    # Fallback: install packages directly using apt
+    PACKAGES="git inxi powertop edid-decode ethtool jq bc"
+    MISSING_PACKAGES=""
+    for pkg in $PACKAGES; do
+        if ! dpkg-query -W -f='${Status}' "$pkg" 2>/dev/null | grep -q "ok installed"; then
+            MISSING_PACKAGES="$MISSING_PACKAGES $pkg"
+        fi
+    done
+    if [ -n "$MISSING_PACKAGES" ]; then
+        echo "Installing missing packages: $MISSING_PACKAGES" >&2
+        sudo apt update
+        sudo apt install -y $MISSING_PACKAGES
+    fi
+fi
 cd $HOME
 if [ -e system76-ee ]; then
   rm -rvf system76-ee

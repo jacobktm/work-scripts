@@ -174,6 +174,14 @@ if [ -e ${SCRIPT_DIR}/system76-ppa.sh ]; then
     ln -s ${SCRIPT_DIR}/system76-ppa.sh system76-ppa
 fi
 
+# Replace apt-proxy if it's different from the one in work-scripts
+if [ -e ${SCRIPT_DIR}/apt-proxy ]; then
+    if [ ! -e apt-proxy ] || ! cmp -s ${SCRIPT_DIR}/apt-proxy apt-proxy; then
+        cp -v ${SCRIPT_DIR}/apt-proxy apt-proxy
+        chmod +x apt-proxy
+    fi
+fi
+
 )
 
 if [ $INSTALL_PPA -eq 1 ]; then

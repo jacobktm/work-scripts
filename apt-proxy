@@ -17,16 +17,16 @@ rewrite_url() {
             printf 'http://cursor.cache/%s\n' "${url#https://downloads.cursor.com/aptrepo/}"
             ;;
         https://dl.google.com/linux/chrome/deb/*)
-            printf 'http://google.chrome.cache/%s\n' "${url#https://dl.google.com/linux/chrome/deb/}"
+            printf 'http://chrome.cache/%s\n' "${url#https://dl.google.com/linux/chrome/deb/}"
             ;;
         https://deb.nodesource.com/node_23.x/*)
-            printf 'http://nodesource.cache/%s\n' "${url#https://deb.nodesource.com/node_23.x/}"
+            printf 'http://nodesrc.cache/%s\n' "${url#https://deb.nodesource.com/node_23.x/}"
             ;;
         https://deb.packages.mattermost.com/*)
-            printf 'http://mattermost.cache/%s\n' "${url#https://deb.packages.mattermost.com/}"
+            printf 'http://matter.cache/%s\n' "${url#https://deb.packages.mattermost.com/}"
             ;;
         https://packages.microsoft.com/repos/code/*)
-            printf 'http://vscode.cache/%s\n' "${url#https://packages.microsoft.com/repos/code/}"
+            printf 'http://mscode.cache/%s\n' "${url#https://packages.microsoft.com/repos/code/}"
             ;;
         https://ppa.launchpad.net/*)
             printf 'http://lp.cache/%s\n' "${url#https://ppa.launchpad.net/}"

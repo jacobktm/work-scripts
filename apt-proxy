@@ -184,35 +184,40 @@ convert_old_format_to_deb822() {
                 local arch=""
                 local signed_by=""
 
-                set -- $line
-                if [ "$1" = "deb-src" ]; then
-                    type="deb-src"
-                fi
-                shift
-
-                # Parse options [opts]
-                if [[ "$1" == \[* ]]; then
-                    opts="${1#[}"
-                    opts="${opts%]}"
-                    shift
-                fi
-
-                url="$1"
-                shift
-                
-                if [ $# -ge 1 ]; then
-                    suite="$1"
-                    shift
-                    components="$*"
+                # Use regex to parse: deb[-src] [options] URL suite components...
+                if [[ "$line" =~ ^(deb-src|deb)[[:space:]]+(.*)$ ]]; then
+                    type="${BASH_REMATCH[1]}"
+                    local rest="${BASH_REMATCH[2]}"
+                    
+                    # Extract options bracket if present
+                    if [[ "$rest" =~ ^\[([^\]]+)\][[:space:]]+(.*)$ ]]; then
+                        opts="${BASH_REMATCH[1]}"
+                        rest="${BASH_REMATCH[2]}"
+                    fi
+                    
+                    # Parse URL, suite, and components from remaining line
+                    # Split by whitespace - first is URL, second is suite, rest are components
+                    set -- $rest
+                    url="$1"
+                    if [ $# -ge 2 ]; then
+                        suite="$2"
+                        shift 2
+                        components="$*"
+                    fi
                 fi
 
                 # Parse options for arch and signed-by
-                if [[ "$opts" =~ arch=([^,]+) ]]; then
-                    arch="${BASH_REMATCH[1]}"
+                if [ -n "$opts" ]; then
+                    if [[ "$opts" =~ arch=([^[:space:],]+) ]]; then
+                        arch="${BASH_REMATCH[1]}"
+                    fi
+                    if [[ "$opts" =~ signed-by=([^[:space:],]+) ]]; then
+                        signed_by="${BASH_REMATCH[1]}"
+                    fi
                 fi
-                if [[ "$opts" =~ signed-by=([^,]+) ]]; then
-                    signed_by="${BASH_REMATCH[1]}"
-                fi
+
+                # Skip if URL is empty
+                [ -z "$url" ] && continue
 
                 # Rewrite URL
                 local new_url
@@ -221,7 +226,9 @@ convert_old_format_to_deb822() {
                 # Output in deb822 format
                 echo "Types: $type" >> "$output_file"
                 echo "URIs: $new_url" >> "$output_file"
-                echo "Suites: $suite" >> "$output_file"
+                if [ -n "$suite" ]; then
+                    echo "Suites: $suite" >> "$output_file"
+                fi
                 if [ -n "$components" ]; then
                     echo "Components: $components" >> "$output_file"
                 fi

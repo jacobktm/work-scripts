@@ -1,40 +1,32 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-PROXY_HOST="10.17.89.69"
-PROXY_PORT="3142"
-CHECK_URL="http://10.17.89.69:5000/download/llvm-project-main.zip"
+PROXY="http://10.17.89.69:3142/"
+WARM_SOURCES="$(mktemp /tmp/acng-warm-sources.XXXXXX)"
 
-ensure_curl() {
-    if ! command -v curl >/dev/null 2>&1; then
-        sudo apt install -y curl
-    fi
+cleanup() {
+    rm -f "$WARM_SOURCES"
 }
+trap cleanup EXIT
 
-proxy_up() {
-    local code
-    code=$(curl -I -s --connect-timeout 1 -o /dev/null -w "%{http_code}" "$CHECK_URL" || echo 000)
-    [ "$code" = "200" ]
-}
-
-rewrite_https_url() {
+rewrite_url() {
     local url="$1"
 
     case "$url" in
-        https://packages.microsoft.com/repos/code/*)
-            printf 'http://mscode.cache/%s\n' "${url#https://packages.microsoft.com/repos/code/}"
-            ;;
-        https://deb.nodesource.com/*)
-            printf 'http://nodesrc.cache/%s\n' "${url#https://deb.nodesource.com/}"
-            ;;
-        https://deb.packages.mattermost.com/*)
-            printf 'http://matter.cache/%s\n' "${url#https://deb.packages.mattermost.com/}"
-            ;;
-        https://dl.google.com/linux/chrome/deb/*)
-            printf 'http://chrome.cache/%s\n' "${url#https://dl.google.com/linux/chrome/deb/}"
-            ;;
         https://downloads.cursor.com/aptrepo/*)
             printf 'http://cursor.cache/%s\n' "${url#https://downloads.cursor.com/aptrepo/}"
+            ;;
+        https://dl.google.com/linux/chrome/deb/*)
+            printf 'http://google.chrome.cache/%s\n' "${url#https://dl.google.com/linux/chrome/deb/}"
+            ;;
+        https://deb.nodesource.com/node_23.x/*)
+            printf 'http://nodesource.cache/%s\n' "${url#https://deb.nodesource.com/node_23.x/}"
+            ;;
+        https://deb.packages.mattermost.com/*)
+            printf 'http://mattermost.cache/%s\n' "${url#https://deb.packages.mattermost.com/}"
+            ;;
+        https://packages.microsoft.com/repos/code/*)
+            printf 'http://vscode.cache/%s\n' "${url#https://packages.microsoft.com/repos/code/}"
             ;;
         https://ppa.launchpad.net/*)
             printf 'http://lp.cache/%s\n' "${url#https://ppa.launchpad.net/}"
@@ -43,77 +35,73 @@ rewrite_https_url() {
             printf 'http://lp.cache/%s\n' "${url#https://ppa.launchpadcontent.net/}"
             ;;
         *)
-            printf '\n'
+            # For http://apt.pop-os.org/... or anything else:
+            printf '%s\n' "$url"
             ;;
     esac
 }
 
 generate_warm_sources() {
-    local tmpfile
-    tmpfile=$(mktemp /tmp/acng-warm-sources.XXXXXX)
-
     {
-        for f in /etc/apt/sources.list /etc/apt/sources.list.d/*.list; do
-            [ -f "$f" ] || continue
+        echo "### Generated for apt-cacher-ng warm run ###"
 
-            while IFS= read -r line; do
-                case "$line" in
-                    ""|"#"*)
-                        echo "$line"
-                        continue
-                        ;;
-                esac
+        # Read all sources files
+        cat /etc/apt/sources.list /etc/apt/sources.list.d/*.list 2>/dev/null \
+        | while read -r line; do
+            case "$line" in
+                deb\ *|deb-src\ *)
+                    # handle: deb [opts] URL suite components...
+                    # split first token (deb or deb-src)
+                    set -- $line
+                    local first="$1"
+                    shift
 
-                set -- $line
-                local type="$1"
-                local url="$2"
-
-                case "$type" in
-                    deb|deb-src) ;;
-                    *)
-                        echo "$line"
-                        continue
-                        ;;
-                esac
-
-                case "$url" in
-                    https://*)
-                        new_url=$(rewrite_https_url "$url")
-                        if [ -n "$new_url" ]; then
-                            printf '%s %s' "$type" "$new_url"
-                            shift 2
-                            for arg in "$@"; do printf ' %s' "$arg"; done
-                            printf '\n'
-                        else
-                            echo "$line"
-                        fi
-                        ;;
-                    *)
-                        echo "$line"
-                        ;;
-                esac
-            done < "$f"
+                    if [[ "$1" == \[* ]]; then
+                        # has options in [ ]
+                        local opts="$1"
+                        shift
+                        local url="$1"
+                        shift
+                        local rest="$*"
+                        local new_url
+                        new_url=$(rewrite_url "$url")
+                        printf '%s %s %s %s\n' "$first" "$opts" "$new_url" "$rest"
+                    else
+                        # no [opts]
+                        local url="$1"
+                        shift
+                        local rest="$*"
+                        local new_url
+                        new_url=$(rewrite_url "$url")
+                        printf '%s %s %s\n' "$first" "$new_url" "$rest"
+                    fi
+                    ;;
+                *)
+                    # comments / blank lines passthrough
+                    echo "$line"
+                    ;;
+            esac
         done
-    } >"$tmpfile"
-
-    echo "$tmpfile"
+    } >"$WARM_SOURCES"
 }
 
-ensure_curl
+# Ensure curl exists (for the proxy-availability check)
+if ! command -v curl >/dev/null 2>&1; then
+    sudo apt-get install -y curl
+fi
 
-if proxy_up; then
-    warm_sources=$(generate_warm_sources)
+# Only bother with warm-sources if proxy is reachable
+if curl -s --connect-timeout 1 "$PROXY" >/dev/null 2>&1; then
+    generate_warm_sources
 
     sudo /usr/bin/apt \
-        -o Acquire::http::Proxy="http://${PROXY_HOST}:${PROXY_PORT}/" \
-        -o Acquire::https::Proxy="http://${PROXY_HOST}:${PROXY_PORT}/" \
-        -o Dir::Etc::sourcelist="$warm_sources" \
-        -o Dir::Etc::sourceparts="/dev/null" \
-        -o Dir::Etc::main="/dev/null" \
+        -o Acquire::http::Proxy="$PROXY" \
+        -o Acquire::https::Proxy="$PROXY" \
         -o Acquire::By-Hash=true \
+        -o Dir::Etc::sourcelist="$WARM_SOURCES" \
+        -o Dir::Etc::sourceparts="-" \
         "$@"
-
-    rm -f "$warm_sources"
 else
+    # fall back to normal behavior if proxy is down
     sudo /usr/bin/apt "$@"
 fi

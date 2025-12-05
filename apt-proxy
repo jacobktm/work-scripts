@@ -9,6 +9,7 @@ RESPONSE=$(curl -I -s --connect-timeout 1 -o /dev/null -w "%{http_code}" "http:/
 if [ "$RESPONSE" -eq 200 ]; then
     sudo /usr/bin/apt -o Acquire::http::Proxy="http://10.17.89.69:3142/" \
         -o Acquire::https::Proxy="http://10.17.89.69:3142/" \
+	-o Acquire::By-Hash=true \
         "$@"
 else
     sudo /usr/bin/apt "$@"

@@ -2,37 +2,70 @@
 set -euo pipefail
 
 PROXY="http://10.17.89.69:3142/"
-WARM_SOURCES="$(mktemp /tmp/acng-warm-sources.XXXXXX)"
+WARM_SOURCES_DIR="$(mktemp -d /tmp/acng-warm-sources.XXXXXX)"
 
 cleanup() {
-    rm -f "$WARM_SOURCES"
+    rm -rf "$WARM_SOURCES_DIR"
 }
 trap cleanup EXIT
 
 rewrite_url() {
     local url="$1"
+    local suffix=""
 
     case "$url" in
-        https://downloads.cursor.com/aptrepo/*)
-            printf 'http://cursor.cache/%s\n' "${url#https://downloads.cursor.com/aptrepo/}"
+        https://downloads.cursor.com/aptrepo|https://downloads.cursor.com/aptrepo/*)
+            suffix="${url#https://downloads.cursor.com/aptrepo}"
+            suffix="${suffix#/}"
+            if [ -n "$suffix" ]; then
+                printf 'http://cursor.cache/%s\n' "$suffix"
+            else
+                printf 'http://cursor.cache\n'
+            fi
             ;;
-        https://dl.google.com/linux/chrome/deb/*)
-            printf 'http://chrome.cache/%s\n' "${url#https://dl.google.com/linux/chrome/deb/}"
+        https://dl.google.com/linux/chrome/deb|https://dl.google.com/linux/chrome/deb/*)
+            suffix="${url#https://dl.google.com/linux/chrome/deb}"
+            suffix="${suffix#/}"
+            if [ -n "$suffix" ]; then
+                printf 'http://chrome.cache/%s\n' "$suffix"
+            else
+                printf 'http://chrome.cache\n'
+            fi
             ;;
-        https://deb.nodesource.com/node_23.x/*)
-            printf 'http://nodesrc.cache/%s\n' "${url#https://deb.nodesource.com/node_23.x/}"
+        https://deb.nodesource.com/node_23.x|https://deb.nodesource.com/node_23.x/*)
+            suffix="${url#https://deb.nodesource.com/node_23.x}"
+            suffix="${suffix#/}"
+            if [ -n "$suffix" ]; then
+                printf 'http://nodesrc.cache/%s\n' "$suffix"
+            else
+                printf 'http://nodesrc.cache\n'
+            fi
             ;;
-        https://deb.packages.mattermost.com/*)
-            printf 'http://matter.cache/%s\n' "${url#https://deb.packages.mattermost.com/}"
+        https://deb.packages.mattermost.com|https://deb.packages.mattermost.com/*)
+            suffix="${url#https://deb.packages.mattermost.com}"
+            suffix="${suffix#/}"
+            if [ -n "$suffix" ]; then
+                printf 'http://matter.cache/%s\n' "$suffix"
+            else
+                printf 'http://matter.cache\n'
+            fi
             ;;
-        https://packages.microsoft.com/repos/code/*)
-            printf 'http://mscode.cache/%s\n' "${url#https://packages.microsoft.com/repos/code/}"
+        https://packages.microsoft.com/repos/code|https://packages.microsoft.com/repos/code/*)
+            suffix="${url#https://packages.microsoft.com/repos/code}"
+            suffix="${suffix#/}"
+            if [ -n "$suffix" ]; then
+                printf 'http://mscode.cache/%s\n' "$suffix"
+            else
+                printf 'http://mscode.cache\n'
+            fi
             ;;
         https://ppa.launchpad.net/*)
-            printf 'http://lp.cache/%s\n' "${url#https://ppa.launchpad.net/}"
+            suffix="${url#https://ppa.launchpad.net/}"
+            printf 'http://lp.cache/%s\n' "$suffix"
             ;;
         https://ppa.launchpadcontent.net/*)
-            printf 'http://lp.cache/%s\n' "${url#https://ppa.launchpadcontent.net/}"
+            suffix="${url#https://ppa.launchpadcontent.net/}"
+            printf 'http://lp.cache/%s\n' "$suffix"
             ;;
         *)
             # For http://apt.pop-os.org/... or anything else:
@@ -43,93 +76,187 @@ rewrite_url() {
 
 process_deb822_file() {
     local file="$1"
+    local output_file="$2"
+    local types=""
+    local uris=""
+    local suites=""
+    local components=""
+    local architectures=""
+    local signed_by=""
+    local enabled=""
+    local in_stanza=false
+    local stanza_lines=()
 
     while IFS= read -r line || [ -n "$line" ]; do
-        # Check if this is a URIs: line
-        if [[ "$line" =~ ^([[:space:]]*URIs:[[:space:]]*)(.*)$ ]]; then
-            local prefix="${BASH_REMATCH[1]}"
-            local uris="${BASH_REMATCH[2]}"
-            local rewritten_uris=""
-            local first=true
-            local changed=false
+        # Blank line indicates end of stanza
+        if [[ -z "$line" || "$line" =~ ^[[:space:]]*$ ]]; then
+            if [ "$in_stanza" = true ]; then
+                # Output the stanza with rewritten URIs
+                for stanza_line in "${stanza_lines[@]}"; do
+                    if [[ "$stanza_line" =~ ^([[:space:]]*URIs:[[:space:]]*)(.*)$ ]]; then
+                        local prefix="${BASH_REMATCH[1]}"
+                        local uris_list="${BASH_REMATCH[2]}"
+                        local rewritten_uris=""
+                        local first=true
 
-            # Process each URI (space-separated)
-            for uri in $uris; do
-                local new_uri
-                new_uri=$(rewrite_url "$uri")
-                
-                if [ "$new_uri" != "$uri" ]; then
-                    changed=true
-                fi
-                
-                if [ "$first" = true ]; then
-                    rewritten_uris="$new_uri"
-                    first=false
-                else
-                    rewritten_uris="$rewritten_uris $new_uri"
-                fi
-            done
-
-            if [ "$changed" = true ]; then
-                echo "${prefix}${rewritten_uris}"
-            else
-                echo "$line"
+                        for uri in $uris_list; do
+                            local new_uri
+                            new_uri=$(rewrite_url "$uri")
+                            
+                            if [ "$first" = true ]; then
+                                rewritten_uris="$new_uri"
+                                first=false
+                            else
+                                rewritten_uris="$rewritten_uris $new_uri"
+                            fi
+                        done
+                        echo "${prefix}${rewritten_uris}" >> "$output_file"
+                    else
+                        echo "$stanza_line" >> "$output_file"
+                    fi
+                done
+                echo "" >> "$output_file"
             fi
-        else
-            # All other lines pass through unchanged
-            echo "$line"
+            # Reset for next stanza
+            types=""
+            uris=""
+            suites=""
+            components=""
+            architectures=""
+            signed_by=""
+            enabled=""
+            in_stanza=false
+            stanza_lines=()
+            continue
         fi
+
+        # Collect all lines in the stanza
+        if [[ "$line" =~ ^[[:space:]]*# ]]; then
+            stanza_lines+=("$line")
+        elif [[ "$line" =~ ^[[:space:]]*(Types|URIs|Suites|Components|Architectures|Signed-By|Enabled): ]]; then
+            in_stanza=true
+            stanza_lines+=("$line")
+        else
+            stanza_lines+=("$line")
+        fi
+    done < "$file"
+
+    # Handle last stanza if file doesn't end with blank line
+    if [ "$in_stanza" = true ] && [ ${#stanza_lines[@]} -gt 0 ]; then
+        for stanza_line in "${stanza_lines[@]}"; do
+            if [[ "$stanza_line" =~ ^([[:space:]]*URIs:[[:space:]]*)(.*)$ ]]; then
+                local prefix="${BASH_REMATCH[1]}"
+                local uris_list="${BASH_REMATCH[2]}"
+                local rewritten_uris=""
+                local first=true
+
+                for uri in $uris_list; do
+                    local new_uri
+                    new_uri=$(rewrite_url "$uri")
+                    
+                    if [ "$first" = true ]; then
+                        rewritten_uris="$new_uri"
+                        first=false
+                    else
+                        rewritten_uris="$rewritten_uris $new_uri"
+                    fi
+                done
+                echo "${prefix}${rewritten_uris}" >> "$output_file"
+            else
+                echo "$stanza_line" >> "$output_file"
+            fi
+        done
+    fi
+}
+
+convert_old_format_to_deb822() {
+    local file="$1"
+    local output_file="$2"
+
+    while IFS= read -r line || [ -n "$line" ]; do
+        case "$line" in
+            deb\ *|deb-src\ *)
+                local type="deb"
+                local opts=""
+                local url=""
+                local suite=""
+                local components=""
+                local arch=""
+                local signed_by=""
+
+                set -- $line
+                if [ "$1" = "deb-src" ]; then
+                    type="deb-src"
+                fi
+                shift
+
+                # Parse options [opts]
+                if [[ "$1" == \[* ]]; then
+                    opts="${1#[}"
+                    opts="${opts%]}"
+                    shift
+                fi
+
+                url="$1"
+                shift
+                
+                if [ $# -ge 1 ]; then
+                    suite="$1"
+                    shift
+                    components="$*"
+                fi
+
+                # Parse options for arch and signed-by
+                if [[ "$opts" =~ arch=([^,]+) ]]; then
+                    arch="${BASH_REMATCH[1]}"
+                fi
+                if [[ "$opts" =~ signed-by=([^,]+) ]]; then
+                    signed_by="${BASH_REMATCH[1]}"
+                fi
+
+                # Rewrite URL
+                local new_url
+                new_url=$(rewrite_url "$url")
+
+                # Output in deb822 format
+                echo "Types: $type" >> "$output_file"
+                echo "URIs: $new_url" >> "$output_file"
+                echo "Suites: $suite" >> "$output_file"
+                if [ -n "$components" ]; then
+                    echo "Components: $components" >> "$output_file"
+                fi
+                if [ -n "$arch" ]; then
+                    echo "Architectures: $(echo $arch | tr ',' ' ')" >> "$output_file"
+                fi
+                if [ -n "$signed_by" ]; then
+                    echo "Signed-By: $signed_by" >> "$output_file"
+                fi
+                echo "" >> "$output_file"
+                ;;
+            *)
+                # Skip comments and blank lines for now
+                ;;
+        esac
     done < "$file"
 }
 
 generate_warm_sources() {
-    {
-        echo "### Generated for apt-cacher-ng warm run ###"
+    local counter=0
 
-        # Process old-format .list files
-        cat /etc/apt/sources.list /etc/apt/sources.list.d/*.list 2>/dev/null \
-        | while read -r line || [ -n "$line" ]; do
-            case "$line" in
-                deb\ *|deb-src\ *)
-                    # handle: deb [opts] URL suite components...
-                    # split first token (deb or deb-src)
-                    set -- $line
-                    local first="$1"
-                    shift
+    # Process old-format .list files and convert to deb822
+    for file in /etc/apt/sources.list /etc/apt/sources.list.d/*.list; do
+        [ -f "$file" ] || continue
+        counter=$((counter + 1))
+        convert_old_format_to_deb822 "$file" "${WARM_SOURCES_DIR}/source${counter}.sources"
+    done
 
-                    if [[ "$1" == \[* ]]; then
-                        # has options in [ ]
-                        local opts="$1"
-                        shift
-                        local url="$1"
-                        shift
-                        local rest="$*"
-                        local new_url
-                        new_url=$(rewrite_url "$url")
-                        printf '%s %s %s %s\n' "$first" "$opts" "$new_url" "$rest"
-                    else
-                        # no [opts]
-                        local url="$1"
-                        shift
-                        local rest="$*"
-                        local new_url
-                        new_url=$(rewrite_url "$url")
-                        printf '%s %s %s\n' "$first" "$new_url" "$rest"
-                    fi
-                    ;;
-                *)
-                    # comments / blank lines passthrough
-                    echo "$line"
-                    ;;
-            esac
-        done
-
-        # Process new deb822-format .sources files
-        for file in /etc/apt/sources.list.d/*.sources; do
-            [ -f "$file" ] || continue
-            process_deb822_file "$file"
-        done
-    } >"$WARM_SOURCES"
+    # Process new deb822-format .sources files
+    for file in /etc/apt/sources.list.d/*.sources; do
+        [ -f "$file" ] || continue
+        counter=$((counter + 1))
+        local filename=$(basename "$file")
+        process_deb822_file "$file" "${WARM_SOURCES_DIR}/${filename}"
+    done
 }
 
 # Ensure curl exists (for the proxy-availability check)
@@ -145,8 +272,8 @@ if curl -s --connect-timeout 1 "$PROXY" >/dev/null 2>&1; then
         -o Acquire::http::Proxy="$PROXY" \
         -o Acquire::https::Proxy="$PROXY" \
         -o Acquire::By-Hash=true \
-        -o Dir::Etc::sourcelist="$WARM_SOURCES" \
-        -o Dir::Etc::sourceparts="-" \
+        -o Dir::Etc::sourcelist="/dev/null" \
+        -o Dir::Etc::sourceparts="$WARM_SOURCES_DIR" \
         "$@"
 else
     # fall back to normal behavior if proxy is down

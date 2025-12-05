@@ -41,13 +41,54 @@ rewrite_url() {
     esac
 }
 
+process_deb822_file() {
+    local file="$1"
+
+    while IFS= read -r line || [ -n "$line" ]; do
+        # Check if this is a URIs: line
+        if [[ "$line" =~ ^([[:space:]]*URIs:[[:space:]]*)(.*)$ ]]; then
+            local prefix="${BASH_REMATCH[1]}"
+            local uris="${BASH_REMATCH[2]}"
+            local rewritten_uris=""
+            local first=true
+            local changed=false
+
+            # Process each URI (space-separated)
+            for uri in $uris; do
+                local new_uri
+                new_uri=$(rewrite_url "$uri")
+                
+                if [ "$new_uri" != "$uri" ]; then
+                    changed=true
+                fi
+                
+                if [ "$first" = true ]; then
+                    rewritten_uris="$new_uri"
+                    first=false
+                else
+                    rewritten_uris="$rewritten_uris $new_uri"
+                fi
+            done
+
+            if [ "$changed" = true ]; then
+                echo "${prefix}${rewritten_uris}"
+            else
+                echo "$line"
+            fi
+        else
+            # All other lines pass through unchanged
+            echo "$line"
+        fi
+    done < "$file"
+}
+
 generate_warm_sources() {
     {
         echo "### Generated for apt-cacher-ng warm run ###"
 
-        # Read all sources files
+        # Process old-format .list files
         cat /etc/apt/sources.list /etc/apt/sources.list.d/*.list 2>/dev/null \
-        | while read -r line; do
+        | while read -r line || [ -n "$line" ]; do
             case "$line" in
                 deb\ *|deb-src\ *)
                     # handle: deb [opts] URL suite components...
@@ -81,6 +122,12 @@ generate_warm_sources() {
                     echo "$line"
                     ;;
             esac
+        done
+
+        # Process new deb822-format .sources files
+        for file in /etc/apt/sources.list.d/*.sources; do
+            [ -f "$file" ] || continue
+            process_deb822_file "$file"
         done
     } >"$WARM_SOURCES"
 }

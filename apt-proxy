@@ -1,16 +1,119 @@
-#!/bin/bash
+#!/usr/bin/env bash
+set -euo pipefail
 
-if ! command -v curl >/dev/null 2>&1; then
-    sudo apt install -y curl
-fi
+PROXY_HOST="10.17.89.69"
+PROXY_PORT="3142"
+CHECK_URL="http://10.17.89.69:5000/download/llvm-project-main.zip"
 
-# Optional: Include logic to check for proxy availability
-RESPONSE=$(curl -I -s --connect-timeout 1 -o /dev/null -w "%{http_code}" "http://10.17.89.69:5000/download/llvm-project-main.zip")
-if [ "$RESPONSE" -eq 200 ]; then
-    sudo /usr/bin/apt -o Acquire::http::Proxy="http://10.17.89.69:3142/" \
-        -o Acquire::https::Proxy="http://10.17.89.69:3142/" \
-	-o Acquire::By-Hash=true \
+ensure_curl() {
+    if ! command -v curl >/dev/null 2>&1; then
+        sudo apt install -y curl
+    fi
+}
+
+proxy_up() {
+    local code
+    code=$(curl -I -s --connect-timeout 1 -o /dev/null -w "%{http_code}" "$CHECK_URL" || echo 000)
+    [ "$code" = "200" ]
+}
+
+rewrite_https_url() {
+    local url="$1"
+
+    case "$url" in
+        https://packages.microsoft.com/repos/code/*)
+            printf 'http://mscode.cache/%s\n' "${url#https://packages.microsoft.com/repos/code/}"
+            ;;
+        https://deb.nodesource.com/*)
+            printf 'http://nodesrc.cache/%s\n' "${url#https://deb.nodesource.com/}"
+            ;;
+        https://deb.packages.mattermost.com/*)
+            printf 'http://matter.cache/%s\n' "${url#https://deb.packages.mattermost.com/}"
+            ;;
+        https://dl.google.com/linux/chrome/deb/*)
+            printf 'http://chrome.cache/%s\n' "${url#https://dl.google.com/linux/chrome/deb/}"
+            ;;
+        https://downloads.cursor.com/aptrepo/*)
+            printf 'http://cursor.cache/%s\n' "${url#https://downloads.cursor.com/aptrepo/}"
+            ;;
+        https://ppa.launchpad.net/*)
+            printf 'http://lp.cache/%s\n' "${url#https://ppa.launchpad.net/}"
+            ;;
+        https://ppa.launchpadcontent.net/*)
+            printf 'http://lp.cache/%s\n' "${url#https://ppa.launchpadcontent.net/}"
+            ;;
+        *)
+            printf '\n'
+            ;;
+    esac
+}
+
+generate_warm_sources() {
+    local tmpfile
+    tmpfile=$(mktemp /tmp/acng-warm-sources.XXXXXX)
+
+    {
+        for f in /etc/apt/sources.list /etc/apt/sources.list.d/*.list; do
+            [ -f "$f" ] || continue
+
+            while IFS= read -r line; do
+                case "$line" in
+                    ""|"#"*)
+                        echo "$line"
+                        continue
+                        ;;
+                esac
+
+                set -- $line
+                local type="$1"
+                local url="$2"
+
+                case "$type" in
+                    deb|deb-src) ;;
+                    *)
+                        echo "$line"
+                        continue
+                        ;;
+                esac
+
+                case "$url" in
+                    https://*)
+                        new_url=$(rewrite_https_url "$url")
+                        if [ -n "$new_url" ]; then
+                            printf '%s %s' "$type" "$new_url"
+                            shift 2
+                            for arg in "$@"; do printf ' %s' "$arg"; done
+                            printf '\n'
+                        else
+                            echo "$line"
+                        fi
+                        ;;
+                    *)
+                        echo "$line"
+                        ;;
+                esac
+            done < "$f"
+        done
+    } >"$tmpfile"
+
+    echo "$tmpfile"
+}
+
+ensure_curl
+
+if proxy_up; then
+    warm_sources=$(generate_warm_sources)
+
+    sudo /usr/bin/apt \
+        -o Acquire::http::Proxy="http://${PROXY_HOST}:${PROXY_PORT}/" \
+        -o Acquire::https::Proxy="http://${PROXY_HOST}:${PROXY_PORT}/" \
+        -o Dir::Etc::sourcelist="$warm_sources" \
+        -o Dir::Etc::sourceparts="/dev/null" \
+        -o Dir::Etc::main="/dev/null" \
+        -o Acquire::By-Hash=true \
         "$@"
+
+    rm -f "$warm_sources"
 else
     sudo /usr/bin/apt "$@"
 fi

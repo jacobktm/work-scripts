@@ -33,7 +33,7 @@ if [ ! -d ${HOME}/Documents/stress-scripts ]; then
         apt_command full-upgrade -y --allow-downgrades
         pushd ${HOME}/Documents
             if [ ! -e stress-scripts ]; then
-                git clone https://github.com/jacobktm/stress-scripts.git
+                git clone https://git.karner.dev/jacobvktm/stress-scripts.git
                 pushd stress-scripts
                     git checkout main
                     git submodule update --init --recursive --checkout

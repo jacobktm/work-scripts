@@ -7,9 +7,32 @@ then
     HS100_ARGS="-i $1 "
 fi
 
-gsettings set org.gnome.desktop.session idle-delay 0 2>/dev/null
-gsettings set org.gnome.settings-daemon.plugins.power sleep-inactive-ac-type "nothing" 2>/dev/null
-gsettings set org.gnome.settings-daemon.plugins.power sleep-inactive-battery-type "nothing" 2>/dev/null
+_WS_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+for _ba in "$_WS_ROOT/bash_aliases" "$HOME/.bash_aliases"; do
+  if [[ -f "$_ba" ]]; then
+    # shellcheck source=/dev/null
+    source "$_ba"
+    break
+  fi
+done
+if declare -f gset_apply_test >/dev/null 2>&1; then
+  gset_apply_test
+else
+  _lp_cosmic=0
+  [ "${XDG_SESSION_DESKTOP:-}" = COSMIC ] && _lp_cosmic=1
+  case ":${XDG_CURRENT_DESKTOP:-}:" in *:COSMIC:*) _lp_cosmic=1 ;; esac
+  if [ "$_lp_cosmic" = 1 ] && command -v cosmic-idle >/dev/null 2>&1; then
+    _lp_cv1="${XDG_CONFIG_HOME:-$HOME/.config}/cosmic/com.system76.CosmicIdle/v1"
+    mkdir -p "$_lp_cv1"
+    printf '%s\n' None >"$_lp_cv1/screen_off_time"
+    printf '%s\n' None >"$_lp_cv1/suspend_on_battery_time"
+    printf '%s\n' None >"$_lp_cv1/suspend_on_ac_time"
+  elif [ "$_lp_cosmic" = 0 ]; then
+    gsettings set org.gnome.desktop.session idle-delay 0 2>/dev/null
+    gsettings set org.gnome.settings-daemon.plugins.power sleep-inactive-ac-type "nothing" 2>/dev/null
+    gsettings set org.gnome.settings-daemon.plugins.power sleep-inactive-battery-type "nothing" 2>/dev/null
+  fi
+fi
 
 PACKAGES=""
 if ! command -v stress-ng &>/dev/null

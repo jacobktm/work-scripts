@@ -153,12 +153,24 @@ if [ -e system76-ee ]; then
   rm -rvf system76-ee
 fi
 git clone https://github.com/system76/system76-ee
-gsettings set org.gnome.desktop.session idle-delay 900
-gsettings set org.gnome.desktop.background picture-uri-dark "file://${HOME}/system76-ee/RGB130130130.svg"
-gsettings set org.gnome.desktop.background picture-uri "file://${HOME}/system76-ee/RGB130130130.svg"
-gsettings set org.gnome.settings-daemon.plugins.power idle-dim false
-gsettings set org.gnome.settings-daemon.plugins.power sleep-inactive-ac-timeout 1800
-gsettings set org.gnome.settings-daemon.plugins.power sleep-inactive-ac-type "suspend"
+_t20_cosmic=0
+[ "${XDG_SESSION_DESKTOP:-}" = COSMIC ] && _t20_cosmic=1
+case ":${XDG_CURRENT_DESKTOP:-}:" in *:COSMIC:*) _t20_cosmic=1 ;; esac
+if [ "$_t20_cosmic" = 0 ] && command -v gsettings >/dev/null 2>&1; then
+  gsettings set org.gnome.desktop.session idle-delay 900
+  gsettings set org.gnome.desktop.background picture-uri-dark "file://${HOME}/system76-ee/RGB130130130.svg"
+  gsettings set org.gnome.desktop.background picture-uri "file://${HOME}/system76-ee/RGB130130130.svg"
+  gsettings set org.gnome.settings-daemon.plugins.power idle-dim false
+  gsettings set org.gnome.settings-daemon.plugins.power sleep-inactive-ac-timeout 1800
+  gsettings set org.gnome.settings-daemon.plugins.power sleep-inactive-ac-type "suspend"
+fi
+# COSMIC only: approximate GNOME idle-delay 900s and AC suspend after 1800s (cosmic-idle uses ms, RON Option)
+if [ "$_t20_cosmic" = 1 ] && command -v cosmic-idle >/dev/null 2>&1; then
+  _t20_cv1="${XDG_CONFIG_HOME:-$HOME/.config}/cosmic/com.system76.CosmicIdle/v1"
+  mkdir -p "$_t20_cv1"
+  printf '%s\n' "Some($((900 * 1000)))" > "$_t20_cv1/screen_off_time"
+  printf '%s\n' "Some($((1800 * 1000)))" > "$_t20_cv1/suspend_on_ac_time"
+fi
 xrandr --verbose | edid-decode > monitor-info.txt
 inxi -Fxxxrza > inxi.txt
 echo "Energy Efficient Ethernet" > EEE-info.txt

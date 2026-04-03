@@ -62,18 +62,23 @@ suspend_count="$1"
 [ -f ./count ] && rm -rvf ./count
 [ -f results.log ] && sudo rm -rvf results.log
 
-# List of packages to install
-PKG_LIST=("fwts" "dbus-x11" "gnome-terminal")
+# List of packages to install (terminal matches session)
+PKG_LIST=("fwts" "dbus-x11")
+if [[ "${XDG_SESSION_DESKTOP:-}" == COSMIC ]]; then
+    PKG_LIST+=("cosmic-term")
+else
+    PKG_LIST+=("gnome-terminal")
+fi
 ./install.sh "${PKG_LIST[@]}"
 
-# Marker file to track if gsettings have been saved
-GSETTINGS_MARKER="$HOME/.suspend_gsettings_saved.marker"
+# Marker file: snapshot GNOME/COSMIC power+idle settings once per suspend.sh run
+DESKTOP_TEST_MARKER="$HOME/.suspend_desktop_test_saved.marker"
 
-# Only save gsettings on first run (if marker doesn't exist)
-if [[ ! -f "$GSETTINGS_MARKER" ]]; then
+# Only save on first iteration (if marker doesn't exist)
+if [[ ! -f "$DESKTOP_TEST_MARKER" ]]; then
     if declare -f gset_save >/dev/null 2>&1; then
         gset_save
-        touch "$GSETTINGS_MARKER"
+        touch "$DESKTOP_TEST_MARKER"
     fi
 fi
 
@@ -81,8 +86,15 @@ if declare -f gset_apply_test >/dev/null 2>&1; then
     gset_apply_test
 fi
 
-# Launch a terminal to monitor journal logs
-sudo gnome-terminal -- bash -c 'journalctl -f | tee ./sustest_journal | grep -E -f ./sustest_patterns.txt'
+# No autologin here: this script runs a suspend loop in the current session (unlike drain-bat /
+# suspend-stress / update_test, which rely on reboot + autostart).
+
+# Launch a terminal to monitor journal logs (session-appropriate emulator)
+if [[ "${XDG_SESSION_DESKTOP:-}" == COSMIC ]] && command -v cosmic-term >/dev/null 2>&1; then
+  sudo cosmic-term bash -c 'journalctl -f | tee ./sustest_journal | grep -E -f ./sustest_patterns.txt'
+else
+  sudo gnome-terminal -- bash -c 'journalctl -f | tee ./sustest_journal | grep -E -f ./sustest_patterns.txt'
+fi
 
 if [ "$use_rtc" -eq 1 ]; then
   echo "Using RTC method for suspend test (bypassing rtcwake)..."
@@ -133,5 +145,5 @@ if declare -f gset_restore_and_clear >/dev/null 2>&1; then
     gset_restore_and_clear
 fi
 
-# Clean up the gsettings marker file
-rm -f "$GSETTINGS_MARKER"
+# Clean up the desktop test marker file
+rm -f "$DESKTOP_TEST_MARKER"

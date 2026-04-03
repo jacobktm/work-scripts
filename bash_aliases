@@ -218,9 +218,7 @@ phoronix ()
             popd
         fi
     fi
-    gsettings set org.gnome.desktop.session idle-delay 0
-    gsettings set org.gnome.settings-daemon.plugins.power sleep-inactive-ac-type "nothing"
-    gsettings set org.gnome.settings-daemon.plugins.power sleep-inactive-battery-type "nothing"
+    gset_apply_test
     phoronix-test-suite $@
 }
 
@@ -372,7 +370,7 @@ mst ()
 }
 
 # ===================== gset_helpers.sh =====================
-# Generic GNOME gsettings helpers (no drain-bat assumptions)
+# GNOME gsettings + COSMIC cosmic-idle helpers (session-gated: never both on one call).
 
 # Pick a default state path that isn't tool-specific.
 _gset_default_state_path() {
@@ -380,11 +378,25 @@ _gset_default_state_path() {
   echo "${GSET_STATE_FILE:-$base/gsettings.state}"
 }
 
+# True when the active graphical session is COSMIC (Pop COSMIC, etc.).
+_session_is_cosmic() {
+  [ "${XDG_SESSION_DESKTOP:-}" = COSMIC ] && return 0
+  case ":${XDG_CURRENT_DESKTOP:-}:" in
+    *:COSMIC:*) return 0 ;;
+  esac
+  return 1
+}
+
+# True when we should touch GNOME power/session gsettings (not COSMIC, gsettings present).
+_session_uses_gnome_gsettings() {
+  _session_is_cosmic && return 1
+  command -v gsettings >/dev/null 2>&1 || return 1
+  return 0
+}
+
 # Save current values of keys to $1 (or default). If file already exists, do nothing
 # unless FORCE=1 (env or arg 2). Optional custom keys via array or newline list in $3.
 gset_save() {
-  command -v gsettings >/dev/null 2>&1 || return 0
-
   local state_file="${1:-$(_gset_default_state_path)}"
   local FORCE="${2:-${FORCE:-0}}"
   local -a keys
@@ -409,77 +421,212 @@ gset_save() {
     )
   fi
 
-  # Don't clobber an existing state unless forced.
-  if [ -f "$state_file" ] && [ "$FORCE" != "1" ]; then
-    return 0
+  if _session_uses_gnome_gsettings; then
+    # Don't clobber an existing GNOME state unless forced.
+    if [ ! -f "$state_file" ] || [ "$FORCE" = "1" ]; then
+      mkdir -p "$(dirname "$state_file")"
+
+      # Atomic write: capture to temp then move.
+      local tmp
+      tmp="$(mktemp "${state_file}.XXXXXX")" || return 1
+      : > "$tmp"
+
+      for k in "${keys[@]}"; do
+        # Format: "schema key:::value"
+        # ${k% *} => schema ; ${k##* } => key
+        echo "$k:::$(gsettings get ${k% *} ${k##* })" >> "$tmp" || true
+      done
+
+      mv -f "$tmp" "$state_file"
+    fi
   fi
 
-  mkdir -p "$(dirname "$state_file")"
-
-  # Atomic write: capture to temp then move.
-  local tmp
-  tmp="$(mktemp "${state_file}.XXXXXX")" || return 1
-  : > "$tmp"
-
-  for k in "${keys[@]}"; do
-    # Format: "schema key:::value"
-    # ${k% *} => schema ; ${k##* } => key
-    echo "$k:::$(gsettings get ${k% *} ${k##* })" >> "$tmp" || true
-  done
-
-  mv -f "$tmp" "$state_file"
+  cosmic_idle_save
 }
 
-# Apply a "no idle/no lock/no auto-suspend" test profile.
-# Purely modifies; does not save anything. No-ops if gsettings missing.
+# Apply a "no idle/no lock/no auto-suspend" test profile for the current session only.
+# Purely modifies; does not save anything.
 gset_apply_test() {
-  command -v gsettings >/dev/null 2>&1 || return 0
-  # Disable idle timeout and auto-suspend
-  gsettings set org.gnome.desktop.session idle-delay 0 || true
-  gsettings set org.gnome.settings-daemon.plugins.power sleep-inactive-ac-type 'nothing' || true
-  gsettings set org.gnome.settings-daemon.plugins.power sleep-inactive-battery-type 'nothing' || true
-  gsettings set org.gnome.settings-daemon.plugins.power idle-dim false || true
-  
-  # Disable lock screen completely
-  gsettings set org.gnome.desktop.screensaver idle-activation-enabled false || true
-  gsettings set org.gnome.desktop.screensaver lock-enabled false || true
-  gsettings set org.gnome.desktop.screensaver ubuntu-lock-on-suspend false || true
-  
-  # Additional settings to prevent lock on resume
-  gsettings set org.gnome.desktop.lockdown disable-lock-screen true || true
-  gsettings set org.gnome.desktop.screensaver lock-delay 0 || true
-  
-  # Disable automatic screen lock
-  gsettings set org.gnome.desktop.screensaver lock-on-suspend false || true
+  if _session_uses_gnome_gsettings; then
+    # Disable idle timeout and auto-suspend
+    gsettings set org.gnome.desktop.session idle-delay 0 || true
+    gsettings set org.gnome.settings-daemon.plugins.power sleep-inactive-ac-type 'nothing' || true
+    gsettings set org.gnome.settings-daemon.plugins.power sleep-inactive-battery-type 'nothing' || true
+    gsettings set org.gnome.settings-daemon.plugins.power idle-dim false || true
+
+    # Disable lock screen completely
+    gsettings set org.gnome.desktop.screensaver idle-activation-enabled false || true
+    gsettings set org.gnome.desktop.screensaver lock-enabled false || true
+    gsettings set org.gnome.desktop.screensaver ubuntu-lock-on-suspend false || true
+
+    # Additional settings to prevent lock on resume
+    gsettings set org.gnome.desktop.lockdown disable-lock-screen true || true
+    gsettings set org.gnome.desktop.screensaver lock-delay 0 || true
+
+    # Disable automatic screen lock
+    gsettings set org.gnome.desktop.screensaver lock-on-suspend false || true
+  fi
+  cosmic_idle_apply_test
 }
 
-# Restore from $1 (or default). If the file doesn't exist, do nothing.
+# Restore from $1 (or default). GNOME state file only applies on GNOME-ish sessions;
+# cosmic-idle backup only on COSMIC.
 gset_restore() {
-  command -v gsettings >/dev/null 2>&1 || return 0
   local state_file="${1:-$(_gset_default_state_path)}"
-  [ -f "$state_file" ] || return 0
-
-  # shellcheck disable=SC2162
-  while IFS= read -r line; do
-    # Expect "schema key:::value"
-    local left="${line%%:::*}"
-    local val="${line#*:::}"
-    local schema="${left% *}"
-    local key="${left##* }"
-    gsettings set "$schema" "$key" "$val" || true
-  done < "$state_file"
+  if _session_uses_gnome_gsettings && [ -f "$state_file" ]; then
+    # shellcheck disable=SC2162
+    while IFS= read -r line; do
+      # Expect "schema key:::value"
+      local left="${line%%:::*}"
+      local val="${line#*:::}"
+      local schema="${left% *}"
+      local key="${left##* }"
+      gsettings set "$schema" "$key" "$val" || true
+    done < "$state_file"
+  fi
+  cosmic_idle_restore
 }
 
-# Optional convenience: restore and delete state to avoid stale restores later.
+# Optional convenience: restore and delete saved state for the current session type only.
 gset_restore_and_clear() {
   local state_file="${1:-$(_gset_default_state_path)}"
   gset_restore "$state_file"
-  rm -f "$state_file" 2>/dev/null || true
+  if _session_uses_gnome_gsettings; then
+    rm -f "$state_file" 2>/dev/null || true
+  fi
+  if _session_is_cosmic; then
+    rm -rf "$(_cosmic_idle_state_dir)" 2>/dev/null || true
+  fi
+}
+
+# COSMIC cosmic-idle (screen off / suspend timers). Values are RON Option<u64> ms; "None" disables.
+# Backup directory: COSMIC_IDLE_STATE_BACKUP, else DRAIN_BAT_COSMIC_IDLE_STATE, else ~/.cache/cosmic-idle-v1.bak
+_cosmic_idle_v1_dir() {
+  echo "${XDG_CONFIG_HOME:-$HOME/.config}/cosmic/com.system76.CosmicIdle/v1"
+}
+
+_cosmic_idle_state_dir() {
+  local base="${XDG_CACHE_HOME:-$HOME/.cache}"
+  echo "${COSMIC_IDLE_STATE_BACKUP:-${DRAIN_BAT_COSMIC_IDLE_STATE:-$base/cosmic-idle-v1.bak}}"
+}
+
+cosmic_idle_active() { command -v cosmic-idle >/dev/null 2>&1; }
+
+# Save CosmicIdle v1 keys to backup dir. Skips if backup exists unless FORCE=1 or arg 2 is 1.
+cosmic_idle_save() {
+  cosmic_idle_active || return 0
+  _session_is_cosmic || return 0
+  local dest="${1:-$(_cosmic_idle_state_dir)}"
+  local FORCE="${2:-${FORCE:-0}}"
+  local v1
+  v1="$(_cosmic_idle_v1_dir)"
+  [ -d "$v1" ] || return 0
+  if [ -f "$dest/.saved" ] && [ "$FORCE" != "1" ]; then
+    return 0
+  fi
+  mkdir -p "$dest"
+  local f
+  for f in screen_off_time suspend_on_battery_time suspend_on_ac_time; do
+    if [ -f "$v1/$f" ]; then
+      cp -a "$v1/$f" "$dest/$f"
+    fi
+  done
+  : >"$dest/.saved"
+}
+
+cosmic_idle_apply_test() {
+  cosmic_idle_active || return 0
+  _session_is_cosmic || return 0
+  local v1
+  v1="$(_cosmic_idle_v1_dir)"
+  mkdir -p "$v1"
+  printf '%s\n' None >"$v1/screen_off_time"
+  printf '%s\n' None >"$v1/suspend_on_battery_time"
+  printf '%s\n' None >"$v1/suspend_on_ac_time"
+}
+
+cosmic_idle_restore() {
+  cosmic_idle_active || return 0
+  _session_is_cosmic || return 0
+  local dest="${1:-$(_cosmic_idle_state_dir)}"
+  [ -d "$dest" ] || return 0
+  local v1
+  v1="$(_cosmic_idle_v1_dir)"
+  mkdir -p "$v1"
+  local f
+  for f in screen_off_time suspend_on_battery_time suspend_on_ac_time; do
+    if [ -f "$dest/$f" ]; then
+      cp -a "$dest/$f" "$v1/$f"
+    fi
+  done
+}
+
+cosmic_idle_restore_and_clear() {
+  local dest="${1:-$(_cosmic_idle_state_dir)}"
+  cosmic_idle_restore "$dest"
+  rm -rf "$dest" 2>/dev/null || true
 }
 # =================== end gset_helpers.sh ===================
 
+# Enable greetd autologin into COSMIC via /etc/greetd/cosmic-greeter.toml
+# Optional: cosmic_autologin [command] [user]  (defaults: start-cosmic, $USER)
+cosmic_autologin () {
+  local GREETD_TOML="/etc/greetd/cosmic-greeter.toml"
+  local wl_cmd="${1:-start-cosmic}"
+  local wl_user="${2:-${USER:-root}}"
+  local tmp
+
+  sudo mkdir -p "$(dirname "$GREETD_TOML")"
+
+  if sudo test -f "$GREETD_TOML" && ! sudo test -f "${GREETD_TOML}.bak"; then
+    sudo cp -a "$GREETD_TOML" "${GREETD_TOML}.bak"
+  fi
+
+  if sudo test -f "$GREETD_TOML"; then
+    tmp="$(mktemp)"
+    sudo awk '
+      /^\[initial_session\]/ { drop=1; next }
+      /^\[/ { drop=0 }
+      !drop { print }
+    ' "$GREETD_TOML" >"$tmp" || { rm -f "$tmp"; return 1; }
+    sudo install -m 0644 -o root -g root "$tmp" "$GREETD_TOML"
+    rm -f "$tmp"
+  fi
+
+  printf '\n[initial_session]\ncommand = "%s"\nuser = "%s"\n' "$wl_cmd" "$wl_user" \
+    | sudo tee -a "$GREETD_TOML" >/dev/null
+  sudo chmod 0644 "$GREETD_TOML" 2>/dev/null || true
+}
+
+# Remove [initial_session] from cosmic-greeter.toml; restore from ${GREETD_TOML}.bak if present.
+cosmic_autologin_disable () {
+  local GREETD_TOML="/etc/greetd/cosmic-greeter.toml"
+  local tmp
+
+  sudo test -f "$GREETD_TOML" || return 0
+
+  if sudo test -f "${GREETD_TOML}.bak"; then
+    sudo cp -a "${GREETD_TOML}.bak" "$GREETD_TOML"
+    return 0
+  fi
+
+  tmp="$(mktemp)"
+  sudo awk '
+    /^\[initial_session\]/ { drop=1; next }
+    /^\[/ { drop=0 }
+    !drop { print }
+  ' "$GREETD_TOML" >"$tmp" || { rm -f "$tmp"; return 1; }
+  sudo install -m 0644 -o root -g root "$tmp" "$GREETD_TOML"
+  rm -f "$tmp"
+}
+
 autologin_enable () {
-  # --- Enable Autologin (your sed-based approach) ---
+  if declare -f _session_is_cosmic >/dev/null 2>&1 && _session_is_cosmic; then
+    cosmic_autologin
+    return 0
+  fi
+
+  # --- Enable Autologin (GDM; sed-based) ---
   # Locate the GDM configuration file.
   local GDM_CONF=""
   if [ -f /etc/gdm3/custom.conf ]; then
@@ -512,6 +659,11 @@ autologin_enable () {
 }
 
 autologin_disable () {
+  if declare -f _session_is_cosmic >/dev/null 2>&1 && _session_is_cosmic; then
+    cosmic_autologin_disable
+    return 0
+  fi
+
   local GDM_CONF=""
   local GDM_CONF_BAK=""
   if [ -f /etc/gdm3/custom.conf ]; then
@@ -607,6 +759,25 @@ drain-bat () {
     cat > "$AUTOSTART_SCRIPT" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
+# After reboot, autostart runs without a TTY; open the session-appropriate terminal (COSMIC vs GNOME).
+if [ -z "${DRAIN_BAT_TTY_WRAPPER:-}" ]; then
+  export DRAIN_BAT_TTY_WRAPPER=1
+  _me="$(readlink -f "${BASH_SOURCE[0]}" 2>/dev/null || realpath "${BASH_SOURCE[0]}" 2>/dev/null || echo "${BASH_SOURCE[0]}")"
+  _qme="$(printf '%q' "$_me")"
+  case "${XDG_SESSION_DESKTOP:-}" in
+    COSMIC)
+      if command -v cosmic-term >/dev/null 2>&1; then
+        exec cosmic-term bash -c "export DRAIN_BAT_TTY_WRAPPER=1; exec $_qme"
+      fi
+      ;;
+  esac
+  if command -v gnome-terminal >/dev/null 2>&1; then
+    exec gnome-terminal -- bash -c "export DRAIN_BAT_TTY_WRAPPER=1; exec $_qme"
+  fi
+  if command -v xterm >/dev/null 2>&1; then
+    exec xterm -e bash -c "export DRAIN_BAT_TTY_WRAPPER=1; exec $_qme"
+  fi
+fi
 AUTOSTART_DESKTOP="$HOME/.config/autostart/drain-bat-autostart.desktop"
 [ -f "$AUTOSTART_DESKTOP" ] && rm -f "$AUTOSTART_DESKTOP"
 HS100_CACHE_FILE="$HOME/.cache/drain-bat/hs100_ip"
@@ -630,7 +801,7 @@ EOF
     cat > "$AUTOSTART_DESKTOP" <<EOF
 [Desktop Entry]
 Type=Application
-Exec=gnome-terminal -- bash -lc '$AUTOSTART_SCRIPT'
+Exec=$AUTOSTART_SCRIPT
 Hidden=false
 NoDisplay=false
 X-GNOME-Autostart-enabled=true
@@ -807,13 +978,14 @@ mem-speed ()
 
 pang12-stress ()
 {
-    gsettings set org.gnome.desktop.session idle-delay 0
-    gsettings set org.gnome.settings-daemon.plugins.power sleep-inactive-ac-type "nothing"
-    gsettings set org.gnome.settings-daemon.plugins.power sleep-inactive-battery-type "nothing"
+    gset_apply_test
     ./install.sh stress-ng glmark2
-    $(bash ./terminal --name=stress-ng --title=stress-ng) bash -c "while true; do stress-ng -c 0 -m 0 --vm-bytes 25G; done"
-    $(bash ./terminal --name=glmark2 --title=glmark2) bash -c "glmark2 --run-forever"
-    $(bash ./terminal --name=journalctl --title=journalctl) bash -c "sudo journalctl -f | grep mce"
+    read -r -a _tp_stress < <(bash ./terminal.sh --name=stress-ng --title=stress-ng)
+    "${_tp_stress[@]}" bash -c "while true; do stress-ng -c 0 -m 0 --vm-bytes 25G; done"
+    read -r -a _tp_glm < <(bash ./terminal.sh --name=glmark2 --title=glmark2)
+    "${_tp_glm[@]}" bash -c "glmark2 --run-forever"
+    read -r -a _tp_j < <(bash ./terminal.sh --name=journalctl --title=journalctl)
+    "${_tp_j[@]}" bash -c "sudo journalctl -f | grep mce"
     echo "" >> timestamp.txt
     echo "new test run" >> timestamp.txt
     while true
@@ -826,9 +998,7 @@ pang12-stress ()
 
 build-stress ()
 {
-    gsettings set org.gnome.desktop.session idle-delay 0
-    gsettings set org.gnome.settings-daemon.plugins.power sleep-inactive-ac-type "nothing"
-    gsettings set org.gnome.settings-daemon.plugins.power sleep-inactive-battery-type "nothing"
+    gset_apply_test
     ./install.sh curl build-essential libncurses5-dev fakeroot xz-utils libelf-dev bison flex dwarves unzip libssl-dev
     pushd build
         sudo rm -rvf linux*

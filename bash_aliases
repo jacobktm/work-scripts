@@ -731,6 +731,11 @@ drain-bat () {
   battery_status()   { cat /sys/class/power_supply/BAT0/status 2>/dev/null || echo "Unknown"; }
   battery_capacity() { cat /sys/class/power_supply/BAT0/capacity 2>/dev/null || echo "0";      }
 
+  # pop-os/linux uses master_<VERSION_CODENAME> only; there is no plain master branch.
+  _linux_origin_default_branch() {
+    git ls-remote --symref origin HEAD 2>/dev/null | sed -n 's/^ref: refs\/heads\/\([^[:space:]]*\).*/\1/p' | head -n1
+  }
+
   ensure_linux_repo() {
     local BRANCH="$1"
     if [ -d linux ]; then
@@ -742,13 +747,20 @@ drain-bat () {
           if git ls-remote --heads origin "$BRANCH" | grep -q "$BRANCH"; then
             git checkout -b "$BRANCH" "origin/$BRANCH" || true
           else
-            git checkout master || true
-            git pull --ff-only || true
+            def="$(_linux_origin_default_branch)"
+            if [ -n "$def" ] && git ls-remote --heads origin "$def" | grep -q "$def"; then
+              if git show-ref --verify --quiet "refs/heads/$def" 2>/dev/null; then
+                git checkout "$def" || true
+              else
+                git checkout -b "$def" "origin/$def" || true
+              fi
+              git pull --ff-only || true
+            fi
           fi
         fi )
     else
       git clone --branch "$BRANCH" --single-branch --depth 1 https://github.com/pop-os/linux.git \
-      || git clone --depth 1 https://github.com/pop-os/linux.git
+      || git clone --depth 1 https://github.com/pop-os/linux.git linux
     fi
   }
 
@@ -832,8 +844,14 @@ EOF
     ./install.sh devscripts debhelper || true
     ./install.sh stress-ng xdotool || true
 
-    local BRANCH="master"
-    if grep -qi "jammy" /etc/os-release 2>/dev/null; then BRANCH="master_jammy"; fi
+    local BRANCH
+    local _vco
+    _vco=$(. /etc/os-release 2>/dev/null; printf '%s' "${VERSION_CODENAME:-}")
+    if [ -z "$_vco" ]; then
+      _log "VERSION_CODENAME missing from /etc/os-release; cannot resolve linux branch master_<release>."
+      return 1
+    fi
+    BRANCH="master_${_vco}"
     ensure_linux_repo "$BRANCH"
 
     ensure_hs100_repo

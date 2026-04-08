@@ -708,9 +708,66 @@ drain-bat () {
   readonly AUTOSTART_DIR="$HOME/.config/autostart"
   readonly AUTOSTART_DESKTOP="$AUTOSTART_DIR/drain-bat-autostart.desktop"
   readonly AUTOSTART_SCRIPT="$HOME/.local/bin/drain-bat-autostart.sh"
+  readonly DRAIN_BAT_STATE_FILE="$HS100_CACHE_DIR/drain-bat.state"
+  readonly DRAIN_BAT_B_FLAG_FILE="$HS100_CACHE_DIR/drain-bat-b.flag"
+  readonly DRAIN_BAT_RUNLOG="$HS100_CACHE_DIR/drain-bat.runlog"
 
   _log() { printf '[drain-bat] %s\n' "$*" >&2; }
   ensure_dirs() { mkdir -p "$HS100_CACHE_DIR" "$(dirname "$AUTOSTART_SCRIPT")" "$AUTOSTART_DIR"; }
+
+  _drain_bat_mark() {
+    ensure_dirs
+    local ts
+    ts="$(date -Iseconds 2>/dev/null || date)"
+    _log "$*"
+    printf '%s %s\n' "$ts" "$*" >>"$DRAIN_BAT_RUNLOG"
+  }
+
+  _drain_bat_state_get() {
+    [ -f "$DRAIN_BAT_STATE_FILE" ] || return 0
+    head -n1 "$DRAIN_BAT_STATE_FILE" | tr -d '\r\n' || true
+  }
+
+  _drain_bat_state_set() {
+    ensure_dirs
+    printf '%s\n' "$1" >"$DRAIN_BAT_STATE_FILE"
+    printf '%s drain-bat state → %s\n' "$(date -Iseconds 2>/dev/null || date)" "$1" >>"$DRAIN_BAT_RUNLOG"
+  }
+
+  _drain_bat_b_flags_write() {
+    ensure_dirs
+    printf 'STRESS10_STARTED=%s\nSTRESS10_DONE=%s\nBUILD_STARTED=%s\nLONG_STRESS_STARTED=%s\n' \
+      "$1" "$2" "$3" "$4" >"$DRAIN_BAT_B_FLAG_FILE"
+  }
+
+  _drain_bat_b_flags_load() {
+    STRESS10_STARTED=0
+    STRESS10_DONE=0
+    BUILD_STARTED=0
+    LONG_STRESS_STARTED=0
+    [ -f "$DRAIN_BAT_B_FLAG_FILE" ] || return 0
+    # shellcheck source=/dev/null
+    . "$DRAIN_BAT_B_FLAG_FILE"
+  }
+
+  _drain_bat_clear_run_files() {
+    rm -f "$DRAIN_BAT_STATE_FILE" "$DRAIN_BAT_B_FLAG_FILE" 2>/dev/null || true
+  }
+
+  # A4 + mtime before kernel boot time ⇒ state from before last reboot ⇒ safe to auto-enter Phase B.
+  _drain_bat_state_mtime() {
+    stat -c %Y "$DRAIN_BAT_STATE_FILE" 2>/dev/null || echo 0
+  }
+  _drain_bat_boot_time() {
+    awk '/^btime / {print $2; exit}' /proc/stat 2>/dev/null || true
+  }
+  _drain_bat_a4_is_post_reboot() {
+    local sm bt
+    sm="$(_drain_bat_state_mtime)"
+    bt="$(_drain_bat_boot_time)"
+    [ -z "$bt" ] && return 0
+    [ -n "$sm" ] && [ "$sm" -lt "$bt" ]
+  }
 
   ensure_sudoers() {
     if [ ! -f "$SUDOERS_FILE" ]; then
@@ -730,6 +787,82 @@ drain-bat () {
   }
   battery_status()   { cat /sys/class/power_supply/BAT0/status 2>/dev/null || echo "Unknown"; }
   battery_capacity() { cat /sys/class/power_supply/BAT0/capacity 2>/dev/null || echo "0";      }
+
+  # After --reset: normalize SOC — if >79% and not full, stress down to ≤79% then charge to 100%; if already full, skip.
+  _drain_bat_battery_full_p() {
+    local c s
+    c="$(battery_capacity)"
+    s="$(battery_status)"
+    case "$s" in Full|full) return 0 ;; esac
+    [ "${c:-0}" -ge 100 ] 2>/dev/null && return 0
+    return 1
+  }
+  _drain_bat_reset_precondition() {
+    [ -d /sys/class/power_supply/BAT0 ] || { _log "reset precondition: no BAT0; skipping"; return 0; }
+    local cap
+    cap="$(battery_capacity)"
+    case "$cap" in ''|*[!0-9]*) _log "reset precondition: bad capacity '$cap'; skipping"; return 0 ;; esac
+    if _drain_bat_battery_full_p; then
+      _drain_bat_mark "reset precondition: battery already full; skipping drain/charge"
+      return 0
+    fi
+    local _restart_soc=79
+    if [ "$cap" -le "$_restart_soc" ]; then
+      _drain_bat_mark "reset precondition: capacity ${cap}% (≤${_restart_soc}%); no pre-drain needed"
+      return 0
+    fi
+    _drain_bat_mark "reset precondition: capacity ${cap}% — stress until ≤${_restart_soc}%, then charge to 100%"
+    command -v stress-ng >/dev/null 2>&1 || ./install.sh stress-ng || true
+    command -v stress-ng >/dev/null 2>&1 || { _log "stress-ng missing; cannot pre-drain"; return 1; }
+    if [ "$SMART_PLUG" -eq 0 ]; then
+      ensure_hs100_repo
+      HS100_IP="$(discover_hs100_ip "")" || true
+      [ -n "$HS100_IP" ] && SMART_PLUG=1
+    else
+      ensure_hs100_repo
+      HS100_IP="$(discover_hs100_ip "$HS100_IP")"
+    fi
+    if [ "$SMART_PLUG" -eq 1 ] && [ "$(battery_status)" != "Discharging" ]; then
+      ./hs100/hs100.sh -i "$HS100_IP" off || true
+      sleep 15
+    fi
+    stress-ng -c 0 &
+    local _sg=$!
+    local _nodis=0
+    while [ -d /sys/class/power_supply/BAT0 ]; do
+      cap="$(battery_capacity)"
+      case "$cap" in ''|*[!0-9]*) sleep 2; continue ;; esac
+      [ "$cap" -le "$_restart_soc" ] && break
+      if [ "$(battery_status)" != "Discharging" ]; then
+        _nodis=$((_nodis + 1))
+        [ "$_nodis" -ge 24 ] && {
+          _log "reset precondition: not discharging ~2m while above ${_restart_soc}% — cut AC or HS100 off"
+          _nodis=0
+        }
+      else
+        _nodis=0
+      fi
+      sleep 5
+    done
+    kill "$_sg" 2>/dev/null || true
+    wait "$_sg" 2>/dev/null || true
+    pkill -x stress-ng >/dev/null 2>&1 || true
+    _drain_bat_mark "reset precondition: drained to ${cap}% (target ≤${_restart_soc}%)"
+    if [ "$SMART_PLUG" -eq 1 ]; then
+      ./hs100/hs100.sh -i "$HS100_IP" on || true
+      _drain_bat_mark "reset precondition: charging to 100%…"
+      while [ -d /sys/class/power_supply/BAT0 ]; do
+        if _drain_bat_battery_full_p; then
+          _drain_bat_mark "reset precondition: charge complete"
+          break
+        fi
+        sleep 10
+      done
+    else
+      _log "reset precondition: no HS100 IP — plug in AC manually and wait for 100%, then re-run drain-bat --reset if needed"
+    fi
+    return 0
+  }
 
   # pop-os/linux uses master_<VERSION_CODENAME> only; there is no plain master branch.
   _linux_origin_default_branch() {
@@ -797,15 +930,15 @@ HS100_IP=""
 [ -f "$HS100_CACHE_FILE" ] && HS100_IP="$(cat "$HS100_CACHE_FILE" || true)"
 if [ -f "$HOME/.bash_aliases" ]; then
   if [ -n "${HS100_IP}" ]; then
-    bash -ic 'source "$HOME/.bash_aliases"; drain-bat --resume "$HS100_IP"'
+    bash -ic 'source "$HOME/.bash_aliases"; drain-bat "$HS100_IP"'
   else
-    bash -ic 'source "$HOME/.bash_aliases"; drain-bat --resume'
+    bash -ic 'source "$HOME/.bash_aliases"; drain-bat'
   fi
 else
   if [ -n "${HS100_IP}" ]; then
-    bash -lc 'drain-bat --resume "$HS100_IP"'
+    bash -lc 'drain-bat "$HS100_IP"'
   else
-    bash -lc 'drain-bat --resume'
+    bash -lc 'drain-bat'
   fi
 fi
 EOF
@@ -824,169 +957,237 @@ EOF
     sync
   }
 
-  # Args
-  local RESUME=0 SMART_PLUG=0 HS100_IP="${2:-}"
-  if [ $# -gt 0 ]; then
-    case "${1:-}" in --resume|--resumed) RESUME=1 ;; esac
-    [ $# -ge 2 ] && { SMART_PLUG=1; HS100_IP="$2"; }
+  # Args: drain-bat [--reset] [hs100_ip]. --reset clears state, optional pre-drain >79%→≤79% then charge to 100% unless already full.
+  local RESET=0
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --reset) RESET=1; shift ;;
+      *)       break ;;
+    esac
+  done
+  local SMART_PLUG=0 HS100_IP=""
+  if [ $# -ge 1 ] && [ -n "${1:-}" ]; then
+    SMART_PLUG=1
+    HS100_IP="$1"
   fi
 
-  # ---------------- Phase A: pre-reboot ----------------
-  if [ "$RESUME" -eq 0 ]; then
-    _log "Phase A: pre-reboot setup…"
-    ensure_dirs
-    gset_save
-    gset_apply_test
-    autologin_enable
-    ensure_sudoers
+  ensure_dirs
+  local _a_state
+  _a_state="$(_drain_bat_state_get)"
+  if [ "$RESET" -eq 1 ]; then
+    _drain_bat_clear_run_files
+    _a_state=""
+    _drain_bat_mark "reset: cleared drain-bat.state and drain-bat-b.flag (forced restart)"
+  fi
 
-    ./install.sh -b linux-system76 || true
-    ./install.sh devscripts debhelper || true
-    ./install.sh stress-ng xdotool || true
+  # ---------------- Phase B: B0/B1 or A4 after a real reboot (auto-resume) ----------------
+  run_phase_b() {
+    local _b_state
+    _b_state="$(_drain_bat_state_get)"
+    case "$_b_state" in
+      A1|A2|A3)
+        _log "State $_b_state is pre-reboot Phase A. Run drain-bat (same host) to continue setup, or drain-bat --reset."
+        return 1
+        ;;
+      A4)
+        _drain_bat_state_set B0
+        _drain_bat_mark "Phase A→B: A4→B0 (auto-resume)"
+        _b_state=B0
+        ;;
+    esac
 
-    local BRANCH
-    local _vco
-    _vco=$(. /etc/os-release 2>/dev/null; printf '%s' "${VERSION_CODENAME:-}")
-    if [ -z "$_vco" ]; then
-      _log "VERSION_CODENAME missing from /etc/os-release; cannot resolve linux branch master_<release>."
+    if [ "$_b_state" = "B0" ]; then
+      _drain_bat_mark "Phase B.0 start: RTC suspend/wake"
+      sync
+      sleep 10
+      suspend_with_rtc 930
+      sleep 5
+      _drain_bat_state_set B1
+      _drain_bat_b_flags_write 0 0 0 0
+      _drain_bat_mark "Phase B.0 done → B1"
+      _b_state=B1
+    fi
+
+    if [ "$_b_state" != "B1" ]; then
+      _log "Phase B: unsupported state '$_b_state' (expected B0 or B1). Try drain-bat --reset."
       return 1
     fi
-    BRANCH="master_${_vco}"
-    ensure_linux_repo "$BRANCH"
 
-    ensure_hs100_repo
-    if [ "$SMART_PLUG" -eq 0 ]; then
-      HS100_IP="$(discover_hs100_ip "")"; [ -n "$HS100_IP" ] && SMART_PLUG=1
-    else
-      HS100_IP="$(discover_hs100_ip "$HS100_IP")"
-    fi
-    [ "$SMART_PLUG" -eq 1 ] && [ "$(battery_status)" != "Discharging" ] && {
-      ./hs100/hs100.sh -i "$HS100_IP" off || true; sleep 15; }
+    local STRESS10_STARTED=0
+    local STRESS10_DONE=0
+    local BUILD_STARTED=0
+    local LONG_STRESS_STARTED=0
+    _drain_bat_b_flags_load
+    _drain_bat_mark "Phase B.1: main loop (resume flags STRESS10_STARTED=$STRESS10_STARTED STRESS10_DONE=$STRESS10_DONE BUILD_STARTED=$BUILD_STARTED LONG_STRESS_STARTED=$LONG_STRESS_STARTED)"
 
-    write_autostart "$HS100_IP"
-    _log "Rebooting to enter Phase B…"
-    sync
-    systemctl reboot -i
-    return 0
+    # Hydrate plug IP if cached
+    [ -z "${HS100_IP:-}" ] && [ -f "$HS100_CACHE_FILE" ] && { HS100_IP="$(cat "$HS100_CACHE_FILE" || true)"; [ -n "$HS100_IP" ] && SMART_PLUG=1; }
+
+    local LAST_CHARGE=0
+
+    while [ -d /sys/class/power_supply/BAT0 ]; do
+      local STATUS="$(battery_status)"
+      local CHARGE="$(battery_capacity)"
+
+      if [ "$CHARGE" -le "$CHARGE_THRESHOLD" ] || [ "$STATUS" != "Discharging" ]; then
+        if [ "$CHARGE" -le "$CHARGE_THRESHOLD" ] && [ "$SMART_PLUG" -eq 1 ]; then
+          ./hs100/hs100.sh -i "$HS100_IP" on || true
+          [ -f "$HS100_CACHE_FILE" ] && rm -f "$HS100_CACHE_FILE" || true
+        fi
+        pkill -x stress-ng >/dev/null 2>&1 || true
+
+        if command -v xdotool >/dev/null 2>&1; then
+          local T W WINS
+          for T in kernel-rebuild stress10 stress-until; do
+            WINS=$(xdotool search --name "$T" 2>/dev/null || true)
+            if [ -n "$WINS" ]; then
+              for W in $WINS; do
+                xdotool windowclose "$W" >/dev/null 2>&1 || xdotool windowkill "$W" >/dev/null 2>&1 || true
+              done
+              sleep 2
+            fi
+          done
+        fi
+
+        if pgrep -f rebuild.sh >/dev/null 2>&1; then
+          pkill -f rebuild.sh >/dev/null 2>&1 || true
+          sleep 1
+          pkill -KILL -f rebuild.sh >/dev/null 2>&1 || true
+        fi
+        pkill -TERM -x make >/dev/null 2>&1 || true
+        sleep 1
+        pkill -KILL -x make >/dev/null 2>&1 || true
+      fi
+
+      if [ "$STATUS" = "Discharging" ] && [ "$CHARGE" -gt "$CHARGE_THRESHOLD" ]; then
+
+        if [ "$STRESS10_DONE" -eq 0 ]; then
+          if [ "$STRESS10_STARTED" -eq 0 ]; then
+            STRESS10_STARTED=1
+            $(bash ./terminal.sh --name=stress10 --title=stress10) \
+              bash -lc 'stress-ng -c 0 --timeout 600s' &
+          fi
+          sleep 1
+          if ! pgrep -f "stress-ng -c 0" >/dev/null 2>&1; then
+            STRESS10_DONE=1
+          fi
+
+        elif [ "$BUILD_STARTED" -eq 0 ] && [ "$STRESS10_DONE" -eq 1 ]; then
+          BUILD_STARTED=1
+          $(bash ./terminal.sh --name=kernel-rebuild --title=kernel-rebuild) \
+            bash -lc 'cd "$OLDPWD/linux" 2>/dev/null || cd "./linux"; ./rebuild.sh'
+
+        else
+          if ! pgrep -f "rebuild.sh" >/dev/null 2>&1 && ! pgrep -f "make .* -C" >/dev/null 2>&1; then
+            if [ "$LONG_STRESS_STARTED" -eq 0 ] && ! pgrep -x stress-ng >/dev/null 2>&1; then
+              LONG_STRESS_STARTED=1
+              $(bash ./terminal.sh --name=stress-until --title=stress-until-threshold) \
+                bash -lc 'stress-ng -c 0' &
+            fi
+          fi
+        fi
+      fi
+
+      if [ "$LAST_CHARGE" -ne "${CHARGE:-0}" ]; then
+        LAST_CHARGE="$CHARGE"
+        echo "$CHARGE"
+      fi
+
+      if [ "${CHARGE:-0}" -ge 100 ]; then
+        _drain_bat_mark "COMPLETE: battery full → cleanup (sudoers, autologin, gset/cosmic restore)"
+        remove_sudoers_if_present
+        autologin_disable
+        gset_restore_and_clear
+        _drain_bat_clear_run_files
+        break
+      fi
+
+      _drain_bat_b_flags_write "$STRESS10_STARTED" "$STRESS10_DONE" "$BUILD_STARTED" "$LONG_STRESS_STARTED"
+
+      sleep 1
+    done
+  }
+
+  case "$_a_state" in
+    B0|B1)
+      run_phase_b
+      return $?
+      ;;
+    A4)
+      if _drain_bat_a4_is_post_reboot; then
+        _drain_bat_state_set B0
+        _drain_bat_mark "Phase A→B: A4→B0 (auto-resume after reboot)"
+        run_phase_b
+        return $?
+      fi
+      _drain_bat_mark "Phase A complete (A4): reboot required; autostart will run drain-bat after boot."
+      return 0
+      ;;
+  esac
+
+  if [ "$RESET" -eq 1 ]; then
+    _drain_bat_reset_precondition || return $?
   fi
 
-  # ---------------- Phase B: after reboot ----------------
-  _log "Phase B: resume…"
-
-  # Immediate suspend/wake test using RTC alarm + systemd
-  sync; sleep 10
-  suspend_with_rtc 930
-  sleep 5
-
-  # Hydrate plug IP if cached
-  [ -z "${HS100_IP:-}" ] && [ -f "$HS100_CACHE_FILE" ] && { HS100_IP="$(cat "$HS100_CACHE_FILE" || true)"; [ -n "$HS100_IP" ] && SMART_PLUG=1; }
-
-  # State machine flags for one full cycle while > threshold:
-  #  1) STRESS10 (10-minute stress), then
-  #  2) BUILD (linux/rebuild.sh), then
-  #  3) STRESS_UNTIL_THRESHOLD (long stress until <= threshold)
-  local STRESS10_STARTED=0
-  local STRESS10_DONE=0
-  local BUILD_STARTED=0
-  local LONG_STRESS_STARTED=0
-
-  local LAST_CHARGE=0
-
-  while [ -d /sys/class/power_supply/BAT0 ]; do
-    local STATUS="$(battery_status)"
-    local CHARGE="$(battery_capacity)"
-
-    # ---- If we hit threshold or go on AC, stop workloads as needed ----
-    if [ "$CHARGE" -le "$CHARGE_THRESHOLD" ] || [ "$STATUS" != "Discharging" ]; then
-      # smart plug on at/below threshold
-      if [ "$CHARGE" -le "$CHARGE_THRESHOLD" ] && [ "$SMART_PLUG" -eq 1 ]; then
-        ./hs100/hs100.sh -i "$HS100_IP" on || true
-        [ -f "$HS100_CACHE_FILE" ] && rm -f "$HS100_CACHE_FILE" || true
-      fi
-      # stop stress and rebuild if running
-      pkill -x stress-ng >/dev/null 2>&1 || true
-
-      # Preferred: close the gnome-terminal windows launched by terminal.sh by title
-      if command -v xdotool >/dev/null 2>&1; then
-        for T in kernel-rebuild stress10 stress-until; do
-          # search may return multiple window ids; close them all
-          WINS=$(xdotool search --name "$T" 2>/dev/null || true)
-          if [ -n "$WINS" ]; then
-            for W in $WINS; do
-              xdotool windowclose "$W" >/dev/null 2>&1 || xdotool windowkill "$W" >/dev/null 2>&1 || true
-            done
-            # give processes a moment to exit
-            sleep 2
-          fi
-        done
-      fi
-
-      # Fallback: if any rebuild.sh or make processes remain, try to terminate them
-      if pgrep -f rebuild.sh >/dev/null 2>&1; then
-        pkill -f rebuild.sh >/dev/null 2>&1 || true
-        sleep 1
-        pkill -KILL -f rebuild.sh >/dev/null 2>&1 || true
-      fi
-      # Kill make (graceful then force)
-      pkill -TERM -x make >/dev/null 2>&1 || true
-      sleep 1
-      pkill -KILL -x make >/dev/null 2>&1 || true
+  # ---------------- Phase A: pre-reboot (resumable via ~/.cache/drain-bat/drain-bat.state) ----------------
+  if [ -z "$_a_state" ]; then
+      _drain_bat_mark "Phase A.1 start: gset + autologin + sudoers"
+      gset_save
+      gset_apply_test
+      autologin_enable
+      ensure_sudoers
+      _drain_bat_state_set A1
+      _drain_bat_mark "Phase A.1 done → A1"
+      _a_state=A1
     fi
 
-    # ---- Only orchestrate the cycle while discharging and above threshold ----
-    if [ "$STATUS" = "Discharging" ] && [ "$CHARGE" -gt "$CHARGE_THRESHOLD" ]; then
+    if [ "$_a_state" = "A1" ]; then
+      _drain_bat_mark "Phase A.2 start: install packages"
+      ./install.sh -b linux-system76 || true
+      ./install.sh devscripts debhelper || true
+      ./install.sh stress-ng xdotool || true
+      _drain_bat_state_set A2
+      _drain_bat_mark "Phase A.2 done → A2"
+      _a_state=A2
+    fi
 
-      # 1) Start 10-minute stress if not started or done
-      if [ "$STRESS10_DONE" -eq 0 ]; then
-        if [ "$STRESS10_STARTED" -eq 0 ]; then
-          STRESS10_STARTED=1
-          # 10-minute stress with timeout; auto-exits after 600s
-          $(bash ./terminal.sh --name=stress10 --title=stress10) \
-            bash -lc 'stress-ng -c 0 --timeout 600s' &
-        fi
-        sleep 1
-        # When the 10-minute stress finishes, mark done
-        if ! pgrep -f "stress-ng -c 0" >/dev/null 2>&1; then
-          # It either finished or never started; if charge still > threshold, mark done
-          STRESS10_DONE=1
-        fi
+    if [ "$_a_state" = "A2" ]; then
+      _drain_bat_mark "Phase A.3 start: linux repo"
+      local BRANCH
+      local _vco
+      _vco=$(. /etc/os-release 2>/dev/null; printf '%s' "${VERSION_CODENAME:-}")
+      if [ -z "$_vco" ]; then
+        _log "VERSION_CODENAME missing from /etc/os-release; cannot resolve linux branch master_<release>."
+        return 1
+      fi
+      BRANCH="master_${_vco}"
+      ensure_linux_repo "$BRANCH"
+      _drain_bat_state_set A3
+      _drain_bat_mark "Phase A.3 done → A3"
+      _a_state=A3
+    fi
 
-      # 2) Start kernel rebuild after stress10 completes
-      elif [ "$BUILD_STARTED" -eq 0 ] && [ "$STRESS10_DONE" -eq 1 ]; then
-        BUILD_STARTED=1
-        $(bash ./terminal.sh --name=kernel-rebuild --title=kernel-rebuild) \
-          bash -lc 'cd "$OLDPWD/linux" 2>/dev/null || cd "./linux"; ./rebuild.sh'
-
-      # 3) If build has finished and we’re still above threshold, start long stress (until threshold)
+    if [ "$_a_state" = "A3" ]; then
+      _drain_bat_mark "Phase A.4 start: HS100 + autostart + reboot"
+      ensure_hs100_repo
+      if [ "$SMART_PLUG" -eq 0 ]; then
+        HS100_IP="$(discover_hs100_ip "")"; [ -n "$HS100_IP" ] && SMART_PLUG=1
       else
-        # build considered running if either rebuild.sh or make is seen
-        if ! pgrep -f "rebuild.sh" >/dev/null 2>&1 && ! pgrep -f "make .* -C" >/dev/null 2>&1; then
-          if [ "$LONG_STRESS_STARTED" -eq 0 ] && ! pgrep -x stress-ng >/dev/null 2>&1; then
-            LONG_STRESS_STARTED=1
-            $(bash ./terminal.sh --name=stress-until --title=stress-until-threshold) \
-              bash -lc 'stress-ng -c 0' &
-          fi
-        fi
+        HS100_IP="$(discover_hs100_ip "$HS100_IP")"
       fi
+      [ "$SMART_PLUG" -eq 1 ] && [ "$(battery_status)" != "Discharging" ] && {
+        ./hs100/hs100.sh -i "$HS100_IP" off || true; sleep 15; }
+
+      write_autostart "$HS100_IP"
+      _drain_bat_state_set A4
+      _drain_bat_mark "Phase A.4 done → A4; rebooting for Phase B"
+      sync
+      systemctl reboot -i
+      return 0
     fi
 
-    # ---- Progress echo (only on change) ----
-    if [ "$LAST_CHARGE" -ne "${CHARGE:-0}" ]; then
-      LAST_CHARGE="$CHARGE"
-      echo "$CHARGE"
-    fi
-
-    # ---- Done? ----
-    if [ "${CHARGE:-0}" -ge 100 ]; then
-      _log "Battery full. Cleaning up…"
-      remove_sudoers_if_present
-      autologin_disable
-      gset_restore_and_clear
-      break
-    fi
-
-    sleep 1
-  done
+  _log "Phase A: unexpected state '$_a_state' (use drain-bat --reset to clear)."
+  return 1
 }
 
 mem-speed ()

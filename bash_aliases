@@ -1030,19 +1030,27 @@ EOS
 #!/usr/bin/env bash
 set -euo pipefail
 # After reboot, autostart runs without a TTY; open the session-appropriate terminal (COSMIC vs GNOME).
+# systemd --user autostart often ships a tiny PATH, so command -v cosmic-term fails even on COSMIC — prepend standard dirs.
 if [ -z "${DRAIN_BAT_TTY_WRAPPER:-}" ]; then
   export DRAIN_BAT_TTY_WRAPPER=1
+  export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin${PATH:+:$PATH}"
   _me="$(readlink -f "${BASH_SOURCE[0]}" 2>/dev/null || realpath "${BASH_SOURCE[0]}" 2>/dev/null || echo "${BASH_SOURCE[0]}")"
   _qme="$(printf '%q' "$_me")"
-  case "${XDG_SESSION_DESKTOP:-}" in
-    COSMIC)
-      if command -v cosmic-term >/dev/null 2>&1; then
-        exec cosmic-term bash -c "export DRAIN_BAT_TTY_WRAPPER=1; exec $_qme"
-      fi
-      ;;
-  esac
+  _drain_on_cosmic=0
+  [ "${XDG_SESSION_DESKTOP:-}" = COSMIC ] && _drain_on_cosmic=1
+  case ":${XDG_CURRENT_DESKTOP:-}:" in *:COSMIC:*) _drain_on_cosmic=1 ;; esac
+  _ct=""
+  for _cand in "$(command -v cosmic-term 2>/dev/null || true)" /usr/bin/cosmic-term /usr/local/bin/cosmic-term; do
+    [ -n "$_cand" ] && [ -x "$_cand" ] && { _ct="$_cand"; break; }
+  done
+  if [ "$_drain_on_cosmic" -eq 1 ] && [ -n "$_ct" ]; then
+    exec "$_ct" bash -c "export DRAIN_BAT_TTY_WRAPPER=1; exec $_qme"
+  fi
   if command -v gnome-terminal >/dev/null 2>&1; then
     exec gnome-terminal -- bash -c "export DRAIN_BAT_TTY_WRAPPER=1; exec $_qme"
+  fi
+  if [ -n "$_ct" ]; then
+    exec "$_ct" bash -c "export DRAIN_BAT_TTY_WRAPPER=1; exec $_qme"
   fi
   if command -v xterm >/dev/null 2>&1; then
     exec xterm -e bash -c "export DRAIN_BAT_TTY_WRAPPER=1; exec $_qme"

@@ -1024,6 +1024,8 @@ EOS
     local ip="$1"
     ensure_dirs
     [ -n "$ip" ] && echo "$ip" > "$HS100_CACHE_FILE" || true
+    # Autostart runs with PWD=$HOME; record repo root so post-reboot resume finds ./install.sh etc.
+    pwd -P >"$HS100_CACHE_DIR/workdir"
     cat > "$AUTOSTART_SCRIPT" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -1044,6 +1046,14 @@ if [ -z "${DRAIN_BAT_TTY_WRAPPER:-}" ]; then
   fi
   if command -v xterm >/dev/null 2>&1; then
     exec xterm -e bash -c "export DRAIN_BAT_TTY_WRAPPER=1; exec $_qme"
+  fi
+fi
+# Post-reboot login starts this script in $HOME (not your git checkout).
+_DRAIN_WORKDIR="${XDG_CACHE_HOME:-$HOME/.cache}/drain-bat/workdir"
+if [ -f "$_DRAIN_WORKDIR" ]; then
+  _dw="$(tr -d '\r\n' < "$_DRAIN_WORKDIR" || true)"
+  if [ -n "$_dw" ] && [ -d "$_dw" ] && [ -f "$_dw/install.sh" ]; then
+    cd "$_dw" || { printf '%s\n' '[drain-bat-autostart] cannot cd to saved workdir (see ~/.cache/drain-bat/workdir)' >&2; exit 1; }
   fi
 fi
 AUTOSTART_DESKTOP="$HOME/.config/autostart/drain-bat-autostart.desktop"
@@ -1099,6 +1109,17 @@ EOF
   fi
 
   ensure_dirs
+  if [ ! -f ./install.sh ]; then
+    local _sf="$HS100_CACHE_DIR/workdir"
+    if [ -f "$_sf" ]; then
+      local _d
+      _d="$(tr -d '\r\n' < "$_sf" || true)"
+      if [ -n "$_d" ] && [ -d "$_d" ] && [ -f "$_d/install.sh" ]; then
+        _log "cd saved workdir $_d (current directory had no ./install.sh)"
+        cd "$_d" || { _log "cannot cd to $_d"; return 1; }
+      fi
+    fi
+  fi
   local _a_state
   _a_state="$(_drain_bat_state_get)"
   if [ "$RESET" -eq 1 ]; then
@@ -1328,7 +1349,7 @@ EOF
 
       write_autostart "$HS100_IP"
       _drain_bat_state_set A4
-      _drain_bat_mark "Phase A.4 done → A4; rebooting for Phase B"
+      _drain_bat_mark "Phase A.4 done → A4; systemctl reboot -i (resume uses ~/.cache/drain-bat/workdir → repo with install.sh)"
       sync
       systemctl reboot -i
       return 0

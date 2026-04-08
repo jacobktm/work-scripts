@@ -797,6 +797,36 @@ drain-bat () {
     [ "${c:-0}" -ge 100 ] 2>/dev/null && return 0
     return 1
   }
+  # Before reset pre-drain: HS100 must be off (or user unplugs); do not start stress until status is Discharging.
+  _drain_bat_reset_ensure_discharging() {
+    local w=0
+    if [ "$SMART_PLUG" -eq 1 ]; then
+      _drain_bat_mark "reset precondition: HS100 off — cutting charger path before drain"
+      ./hs100/hs100.sh -i "$HS100_IP" off || true
+      sleep 15
+      while [ "$w" -lt 120 ]; do
+        [ "$(battery_status)" = "Discharging" ] && return 0
+        w=$((w + 1))
+        [ $((w % 10)) -eq 0 ] && ./hs100/hs100.sh -i "$HS100_IP" off || true
+        sleep 2
+      done
+      _log "reset precondition: still not Discharging (~4m) after HS100 off — check IP, outlet, and laptop AC"
+      return 1
+    fi
+    _log "reset precondition: no HS100 — unplug the laptop charger now (waiting for Discharging)"
+    w=0
+    while [ "$w" -lt 150 ]; do
+      [ "$(battery_status)" = "Discharging" ] && {
+        _drain_bat_mark "reset precondition: Discharging (charger unplugged)"
+        return 0
+      }
+      [ $((w % 15)) -eq 0 ] && [ "$w" -gt 0 ] && _log "reset precondition: still waiting for Discharging…"
+      w=$((w + 1))
+      sleep 2
+    done
+    _log "reset precondition: timed out waiting for Discharging — unplug AC, then re-run drain-bat --reset"
+    return 1
+  }
   _drain_bat_reset_precondition() {
     [ -d /sys/class/power_supply/BAT0 ] || { _log "reset precondition: no BAT0; skipping"; return 0; }
     local cap
@@ -814,6 +844,10 @@ drain-bat () {
     _drain_bat_mark "reset precondition: capacity ${cap}% — stress until ≤${_restart_soc}%, then charge to 100%"
     command -v stress-ng >/dev/null 2>&1 || ./install.sh stress-ng || true
     command -v stress-ng >/dev/null 2>&1 || { _log "stress-ng missing; cannot pre-drain"; return 1; }
+    if [ "$SMART_PLUG" -eq 0 ] && [ -f "$HS100_CACHE_FILE" ]; then
+      HS100_IP="$(cat "$HS100_CACHE_FILE" 2>/dev/null | tr -d '\r\n' || true)"
+      [ -n "$HS100_IP" ] && SMART_PLUG=1
+    fi
     if [ "$SMART_PLUG" -eq 0 ]; then
       ensure_hs100_repo
       HS100_IP="$(discover_hs100_ip "")" || true
@@ -822,18 +856,19 @@ drain-bat () {
       ensure_hs100_repo
       HS100_IP="$(discover_hs100_ip "$HS100_IP")"
     fi
-    if [ "$SMART_PLUG" -eq 1 ] && [ "$(battery_status)" != "Discharging" ]; then
-      ./hs100/hs100.sh -i "$HS100_IP" off || true
-      sleep 15
-    fi
-    stress-ng -c 0 &
-    local _sg=$!
-    local _nodis=0
+    _drain_bat_reset_ensure_discharging || return 1
+    # Stress runs in a separate terminal; this shell only polls sysfs (same idea as Phase B stress10 / stress-until).
+    _drain_bat_mark "reset precondition: stress-ng in another window — watching capacity until ≤${_restart_soc}%"
+    $(bash ./terminal.sh --name=drain-bat-pre --title=drain-bat-pre) bash -lc 'stress-ng -c 0' &
+    local _nodis=0 _poll=0 _st
     while [ -d /sys/class/power_supply/BAT0 ]; do
       cap="$(battery_capacity)"
+      _st="$(battery_status)"
       case "$cap" in ''|*[!0-9]*) sleep 2; continue ;; esac
       [ "$cap" -le "$_restart_soc" ] && break
-      if [ "$(battery_status)" != "Discharging" ]; then
+      _poll=$((_poll + 1))
+      [ $((_poll % 6)) -eq 0 ] && _log "reset precondition: battery ${cap}% (${_st}), target ≤${_restart_soc}% (orchestrator loop, stress is separate)"
+      if [ "$_st" != "Discharging" ]; then
         _nodis=$((_nodis + 1))
         [ "$_nodis" -ge 24 ] && {
           _log "reset precondition: not discharging ~2m while above ${_restart_soc}% — cut AC or HS100 off"
@@ -844,8 +879,6 @@ drain-bat () {
       fi
       sleep 5
     done
-    kill "$_sg" 2>/dev/null || true
-    wait "$_sg" 2>/dev/null || true
     pkill -x stress-ng >/dev/null 2>&1 || true
     _drain_bat_mark "reset precondition: drained to ${cap}% (target ≤${_restart_soc}%)"
     if [ "$SMART_PLUG" -eq 1 ]; then
@@ -1074,8 +1107,9 @@ EOF
 
         elif [ "$BUILD_STARTED" -eq 0 ] && [ "$STRESS10_DONE" -eq 1 ]; then
           BUILD_STARTED=1
+          _drain_bat_mark "Phase B: kernel rebuild in separate window (non-blocking); watch stops build if charge ≤${CHARGE_THRESHOLD}% or not discharging"
           $(bash ./terminal.sh --name=kernel-rebuild --title=kernel-rebuild) \
-            bash -lc 'cd "$OLDPWD/linux" 2>/dev/null || cd "./linux"; ./rebuild.sh'
+            bash -lc 'cd "$OLDPWD/linux" 2>/dev/null || cd "./linux"; ./rebuild.sh' &
 
         else
           if ! pgrep -f "rebuild.sh" >/dev/null 2>&1 && ! pgrep -f "make .* -C" >/dev/null 2>&1; then

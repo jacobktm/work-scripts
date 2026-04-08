@@ -696,6 +696,9 @@ suspend_with_rtc () {
     return 1
   }
   systemctl suspend -i
+  # If the user (or lid) resumes before the alarm fires, the RTC is still armed; ~15m later it can
+  # deliver a spurious wake and confuse the session/compositor. Always clear after suspend returns.
+  sudo rtcwake -m disable 2>/dev/null || true
 }
 
 # ---------- main drain-bat function (stress 10m → rebuild → stress-until-threshold) ----------
@@ -1076,7 +1079,8 @@ X-GNOME-Autostart-enabled=true
 Name=AutoStart-drain-bat
 Comment=Resume drain-bat tests after reboot
 EOF
-    chmod +x "$AUTOSTART_DESKTOP"
+    # .desktop must not be executable (systemd-xdg-autostart-generator warns otherwise)
+    chmod 0644 "$AUTOSTART_DESKTOP"
     sync
   }
 

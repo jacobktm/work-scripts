@@ -711,6 +711,8 @@ drain-bat () {
   readonly DRAIN_BAT_STATE_FILE="$HS100_CACHE_DIR/drain-bat.state"
   readonly DRAIN_BAT_B_FLAG_FILE="$HS100_CACHE_DIR/drain-bat-b.flag"
   readonly DRAIN_BAT_RUNLOG="$HS100_CACHE_DIR/drain-bat.runlog"
+  readonly DRAIN_BAT_SUSPEND_MARKER="$HS100_CACHE_DIR/drain-bat.suspend-started"
+  readonly DRAIN_BAT_POST_WAKE_SCRIPT="$HS100_CACHE_DIR/drain-bat-post-wake-once.sh"
 
   _log() { printf '[drain-bat] %s\n' "$*" >&2; }
   ensure_dirs() { mkdir -p "$HS100_CACHE_DIR" "$(dirname "$AUTOSTART_SCRIPT")" "$AUTOSTART_DIR"; }
@@ -752,6 +754,80 @@ drain-bat () {
 
   _drain_bat_clear_run_files() {
     rm -f "$DRAIN_BAT_STATE_FILE" "$DRAIN_BAT_B_FLAG_FILE" 2>/dev/null || true
+    rm -f "$DRAIN_BAT_SUSPEND_MARKER" "$DRAIN_BAT_POST_WAKE_SCRIPT" 2>/dev/null || true
+    _drain_bat_remove_bashrc_wake_hook
+  }
+
+  _drain_bat_remove_bashrc_wake_hook() {
+    local brc="$HOME/.bashrc"
+    [ -f "$brc" ] || return 0
+    sed -i '/# DRAIN_BAT_WAKE_HOOK_BEGIN/,/# DRAIN_BAT_WAKE_HOOK_END/d' "$brc" 2>/dev/null || true
+  }
+
+  _drain_bat_bashrc_install_wake_hook() {
+    local brc="$HOME/.bashrc"
+    [ -f "$brc" ] || touch "$brc"
+    grep -qF 'DRAIN_BAT_WAKE_HOOK_BEGIN' "$brc" 2>/dev/null && return 0
+    ensure_dirs
+    {
+      echo ''
+      echo '# DRAIN_BAT_WAKE_HOOK_BEGIN (managed by drain-bat Phase B.0)'
+      echo '[ -x "${XDG_CACHE_HOME:-$HOME/.cache}/drain-bat/drain-bat-post-wake-once.sh" ] && bash "${XDG_CACHE_HOME:-$HOME/.cache}/drain-bat/drain-bat-post-wake-once.sh" || true'
+      echo '# DRAIN_BAT_WAKE_HOOK_END'
+    } >>"$brc"
+  }
+
+  _drain_bat_write_post_wake_script() {
+    ensure_dirs
+    cat > "$DRAIN_BAT_POST_WAKE_SCRIPT" <<'EOS'
+#!/usr/bin/env bash
+# Advance B0→B1 only if we have proof the RTC suspend/wake cycle ran (avoids skipping suspend if we crash before suspend).
+_CACHE="${XDG_CACHE_HOME:-$HOME/.cache}/drain-bat"
+_STATE="$_CACHE/drain-bat.state"
+_MARKER="$_CACHE/drain-bat.suspend-started"
+[ -f "$_STATE" ] || exit 0
+_cur="$(head -n1 "$_STATE" | tr -d '\r\n' || true)"
+if [ "$_cur" != "B0" ]; then
+  rm -f "$0"
+  exit 0
+fi
+[ -f "$_MARKER" ] || exit 0
+_since="$(tr -d '\r\n' < "$_MARKER" || true)"
+[ -n "$_since" ] || exit 0
+if ! command -v journalctl >/dev/null 2>&1; then
+  exit 0
+fi
+if ! journalctl -b 0 --no-pager -q --since="$_since" 2>/dev/null | grep -qE 'systemd-sleep\[[0-9]+\]: System resumed|PM: suspend exit'; then
+  exit 0
+fi
+_RUNLOG="$_CACHE/drain-bat.runlog"
+_FLAG="$_CACHE/drain-bat-b.flag"
+printf 'B1\n' >"$_STATE"
+printf '%s drain-bat state → B1 (post-wake one-shot)\n' "$(date -Iseconds 2>/dev/null || date)" >>"$_RUNLOG"
+printf 'STRESS10_STARTED=0\nSTRESS10_DONE=0\nBUILD_STARTED=0\nLONG_STRESS_STARTED=0\n' >"$_FLAG"
+rm -f "$_MARKER"
+_BRC="$HOME/.bashrc"
+[ -f "$_BRC" ] && sed -i '/# DRAIN_BAT_WAKE_HOOK_BEGIN/,/# DRAIN_BAT_WAKE_HOOK_END/d' "$_BRC" 2>/dev/null || true
+rm -f "$0"
+exit 0
+EOS
+    chmod +x "$DRAIN_BAT_POST_WAKE_SCRIPT"
+  }
+
+  _drain_bat_clear_wake_artifacts() {
+    rm -f "$DRAIN_BAT_SUSPEND_MARKER" 2>/dev/null || true
+    rm -f "$DRAIN_BAT_POST_WAKE_SCRIPT" 2>/dev/null || true
+    _drain_bat_remove_bashrc_wake_hook
+  }
+
+  _drain_bat_journal_shows_wake_after_suspend_marker() {
+    local since
+    [ -f "$DRAIN_BAT_SUSPEND_MARKER" ] || return 1
+    since="$(tr -d '\r\n' < "$DRAIN_BAT_SUSPEND_MARKER" || true)"
+    [ -n "$since" ] || return 1
+    command -v journalctl >/dev/null 2>&1 || return 1
+    journalctl -b 0 --no-pager -q --since="$since" 2>/dev/null | grep -qE 'systemd-sleep\[[0-9]+\]: System resumed|PM: suspend exit' && return 0
+    return 1
   }
 
   # A4 + mtime before kernel boot time ⇒ state from before last reboot ⇒ safe to auto-enter Phase B.
@@ -969,6 +1045,9 @@ if [ -z "${DRAIN_BAT_TTY_WRAPPER:-}" ]; then
 fi
 AUTOSTART_DESKTOP="$HOME/.config/autostart/drain-bat-autostart.desktop"
 [ -f "$AUTOSTART_DESKTOP" ] && rm -f "$AUTOSTART_DESKTOP"
+# If Phase B.0 suspend killed the session before B1 was written, advance state before drain-bat.
+_DRAIN_WAKE="${XDG_CACHE_HOME:-$HOME/.cache}/drain-bat/drain-bat-post-wake-once.sh"
+[ -x "$_DRAIN_WAKE" ] && bash "$_DRAIN_WAKE" || true
 HS100_CACHE_FILE="$HOME/.cache/drain-bat/hs100_ip"
 HS100_IP=""
 [ -f "$HS100_CACHE_FILE" ] && HS100_IP="$(cat "$HS100_CACHE_FILE" || true)"
@@ -1041,15 +1120,33 @@ EOF
     esac
 
     if [ "$_b_state" = "B0" ]; then
-      _drain_bat_mark "Phase B.0 start: RTC suspend/wake"
-      sync
-      sleep 10
-      suspend_with_rtc 930
-      sleep 5
-      _drain_bat_state_set B1
-      _drain_bat_b_flags_write 0 0 0 0
-      _drain_bat_mark "Phase B.0 done → B1"
-      _b_state=B1
+      # Session often dies right after resume; recover B1 via post-wake script, journal, or fresh suspend.
+      if [ -x "$DRAIN_BAT_POST_WAKE_SCRIPT" ]; then
+        bash "$DRAIN_BAT_POST_WAKE_SCRIPT" || true
+        _b_state="$(_drain_bat_state_get)"
+      fi
+      if [ "$_b_state" = "B0" ] && _drain_bat_journal_shows_wake_after_suspend_marker; then
+        _drain_bat_mark "Phase B.0 recover: journal shows wake after suspend marker → B1"
+        _drain_bat_state_set B1
+        _drain_bat_b_flags_write 0 0 0 0
+        _drain_bat_clear_wake_artifacts
+        _b_state=B1
+      fi
+      if [ "$_b_state" = "B0" ]; then
+        _drain_bat_mark "Phase B.0 start: RTC suspend/wake (post-wake hook + .bashrc guard installed)"
+        date -Iseconds >"$DRAIN_BAT_SUSPEND_MARKER"
+        _drain_bat_write_post_wake_script
+        _drain_bat_bashrc_install_wake_hook
+        sync
+        sleep 10
+        suspend_with_rtc 930
+        sleep 5
+        _drain_bat_state_set B1
+        _drain_bat_b_flags_write 0 0 0 0
+        _drain_bat_mark "Phase B.0 done → B1"
+        _drain_bat_clear_wake_artifacts
+        _b_state=B1
+      fi
     fi
 
     if [ "$_b_state" != "B1" ]; then

@@ -886,11 +886,20 @@ drain-bat () {
     if [ "$SMART_PLUG" -eq 1 ]; then
       ./hs100/hs100.sh -i "$HS100_IP" on || true
       _drain_bat_mark "reset precondition: charging to 100%…"
+      local _last_chg_print=""
       while [ -d /sys/class/power_supply/BAT0 ]; do
         if _drain_bat_battery_full_p; then
           _drain_bat_mark "reset precondition: charge complete"
           break
         fi
+        cap="$(battery_capacity)"
+        _st="$(battery_status)"
+        case "$cap" in ''|*[!0-9]*) ;; *)
+          if [ "$cap" != "$_last_chg_print" ]; then
+            _last_chg_print="$cap"
+            _log "reset precondition: charging ${cap}% (${_st})…"
+          fi
+        esac
         sleep 10
       done
     else

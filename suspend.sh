@@ -91,7 +91,7 @@ fi
 
 # Launch a terminal to monitor journal logs (session-appropriate emulator)
 if [[ "${XDG_SESSION_DESKTOP:-}" == COSMIC ]] && command -v cosmic-term >/dev/null 2>&1; then
-  sudo cosmic-term bash -c 'journalctl -f | tee ./sustest_journal | grep -E -f ./sustest_patterns.txt'
+  sudo cosmic-term -e bash -c 'journalctl -f | tee ./sustest_journal | grep -E -f ./sustest_patterns.txt'
 else
   sudo gnome-terminal -- bash -c 'journalctl -f | tee ./sustest_journal | grep -E -f ./sustest_patterns.txt'
 fi

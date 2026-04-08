@@ -1043,14 +1043,15 @@ if [ -z "${DRAIN_BAT_TTY_WRAPPER:-}" ]; then
   for _cand in "$(command -v cosmic-term 2>/dev/null || true)" /usr/bin/cosmic-term /usr/local/bin/cosmic-term; do
     [ -n "$_cand" ] && [ -x "$_cand" ] && { _ct="$_cand"; break; }
   done
+  # cosmic-term only runs a command after -e / -- / --command; bare "bash -c …" args are ignored (see pop-os/cosmic-term main.rs).
   if [ "$_drain_on_cosmic" -eq 1 ] && [ -n "$_ct" ]; then
-    exec "$_ct" bash -c "export DRAIN_BAT_TTY_WRAPPER=1; exec $_qme"
+    exec "$_ct" -e bash -c "export DRAIN_BAT_TTY_WRAPPER=1; exec $_qme"
   fi
   if command -v gnome-terminal >/dev/null 2>&1; then
     exec gnome-terminal -- bash -c "export DRAIN_BAT_TTY_WRAPPER=1; exec $_qme"
   fi
   if [ -n "$_ct" ]; then
-    exec "$_ct" bash -c "export DRAIN_BAT_TTY_WRAPPER=1; exec $_qme"
+    exec "$_ct" -e bash -c "export DRAIN_BAT_TTY_WRAPPER=1; exec $_qme"
   fi
   if command -v xterm >/dev/null 2>&1; then
     exec xterm -e bash -c "export DRAIN_BAT_TTY_WRAPPER=1; exec $_qme"

@@ -785,8 +785,8 @@ drain-bat () {
     ensure_hs100_repo
     ./hs100/hs100.sh discover 2>&1 | sed -n 's/.*HS100 plugs found: \([0-9.]*\).*/\1/p' | head -n1
   }
-  battery_status()   { cat /sys/class/power_supply/BAT0/status 2>/dev/null || echo "Unknown"; }
-  battery_capacity() { cat /sys/class/power_supply/BAT0/capacity 2>/dev/null || echo "0";      }
+  battery_status()   { tr -d '\r\n' < /sys/class/power_supply/BAT0/status 2>/dev/null || echo "Unknown"; }
+  battery_capacity() { tr -d '\r\n' < /sys/class/power_supply/BAT0/capacity 2>/dev/null || echo "0";      }
 
   # After --reset: normalize SOC — if >79% and not full, stress down to ≤79% then charge to 100%; if already full, skip.
   _drain_bat_battery_full_p() {
@@ -860,14 +860,16 @@ drain-bat () {
     # Stress runs in a separate terminal; this shell only polls sysfs (same idea as Phase B stress10 / stress-until).
     _drain_bat_mark "reset precondition: stress-ng in another window — watching capacity until ≤${_restart_soc}%"
     $(bash ./terminal.sh --name=drain-bat-pre --title=drain-bat-pre) bash -lc 'stress-ng -c 0' &
-    local _nodis=0 _poll=0 _st
+    local _nodis=0 _st _last_print_cap=""
     while [ -d /sys/class/power_supply/BAT0 ]; do
       cap="$(battery_capacity)"
       _st="$(battery_status)"
       case "$cap" in ''|*[!0-9]*) sleep 2; continue ;; esac
       [ "$cap" -le "$_restart_soc" ] && break
-      _poll=$((_poll + 1))
-      [ $((_poll % 6)) -eq 0 ] && _log "reset precondition: battery ${cap}% (${_st}), target ≤${_restart_soc}% (orchestrator loop, stress is separate)"
+      if [ "$cap" != "$_last_print_cap" ]; then
+        _last_print_cap="$cap"
+        _log "reset precondition: battery ${cap}% (${_st}), target ≤${_restart_soc}%"
+      fi
       if [ "$_st" != "Discharging" ]; then
         _nodis=$((_nodis + 1))
         [ "$_nodis" -ge 24 ] && {
@@ -1056,7 +1058,7 @@ EOF
     # Hydrate plug IP if cached
     [ -z "${HS100_IP:-}" ] && [ -f "$HS100_CACHE_FILE" ] && { HS100_IP="$(cat "$HS100_CACHE_FILE" || true)"; [ -n "$HS100_IP" ] && SMART_PLUG=1; }
 
-    local LAST_CHARGE=0
+    local LAST_PRINTED_CHARGE=""
 
     while [ -d /sys/class/power_supply/BAT0 ]; do
       local STATUS="$(battery_status)"
@@ -1122,10 +1124,12 @@ EOF
         fi
       fi
 
-      if [ "$LAST_CHARGE" -ne "${CHARGE:-0}" ]; then
-        LAST_CHARGE="$CHARGE"
-        echo "$CHARGE"
-      fi
+      case "$CHARGE" in ''|*[!0-9]*) ;; *)
+        if [ "$CHARGE" != "$LAST_PRINTED_CHARGE" ]; then
+          LAST_PRINTED_CHARGE="$CHARGE"
+          echo "$CHARGE"
+        fi
+      esac
 
       if [ "${CHARGE:-0}" -ge 100 ]; then
         _drain_bat_mark "COMPLETE: battery full → cleanup (sudoers, autologin, gset/cosmic restore)"

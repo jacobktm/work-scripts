@@ -688,17 +688,41 @@ autologin_disable () {
 }
 
 # ---------- rtc + suspend helper ----------
+# Programs rtc0 (when present) for wake, then suspends. After resume, clears the alarm.
+# DRAIN_BAT_RTC_DEVICE=rtc1   — if rtc0 does not drive wake on your board
+# DRAIN_BAT_RTCWAKE_MODE=mem  — use "rtcwake -m mem" only (no systemctl suspend); helps some firmware
+# DRAIN_BAT_RTCWAKE_UTC=1     — pass -u to rtcwake (default follows /etc/adjtime via rtcwake default)
 suspend_with_rtc () {
   local secs="${1:-930}"  # default ~15.5m
-  # program alarm in UTC; don’t attempt to enter suspend here
-  sudo rtcwake -m no -u -s "$secs" || {
-    echo "[suspend_with_rtc] failed to program RTC alarm" >&2
-    return 1
-  }
-  systemctl suspend -i
-  # If the user (or lid) resumes before the alarm fires, the RTC is still armed; ~15m later it can
-  # deliver a spurious wake and confuse the session/compositor. Always clear after suspend returns.
-  sudo rtcwake -m disable 2>/dev/null || true
+  local dev="${DRAIN_BAT_RTC_DEVICE:-rtc0}"
+  local rtc=()
+  local utc=()
+  [ -e "/sys/class/rtc/$dev" ] && rtc=(-d "$dev")
+  [ "${DRAIN_BAT_RTCWAKE_UTC:-0}" = 1 ] && utc=(-u)
+
+  case "${DRAIN_BAT_RTCWAKE_MODE:-}" in
+    mem)
+      # Single rtcwake path: set alarm and enter S3 (avoids systemd suspend vs RTC quirks on some machines).
+      sudo rtcwake "${rtc[@]}" "${utc[@]}" -m mem -s "$secs" || {
+        echo "[suspend_with_rtc] rtcwake -m mem failed (try unset DRAIN_BAT_RTCWAKE_MODE or DRAIN_BAT_RTC_DEVICE=rtc1)" >&2
+        return 1
+      }
+      ;;
+    *)
+      # Do not pass -u by default: forced UTC mismatches many laptop RTCs (adjtime is local) and can prevent wake.
+      sudo rtcwake "${rtc[@]}" "${utc[@]}" -m no -s "$secs" || {
+        echo "[suspend_with_rtc] failed to program RTC alarm (${dev:-default}); try DRAIN_BAT_RTC_DEVICE=rtc1 or DRAIN_BAT_RTCWAKE_UTC=1" >&2
+        return 1
+      }
+      if [ "${DRAIN_BAT_DEBUG_RTC:-0}" = 1 ]; then
+        sudo rtcwake "${rtc[@]}" -m show 2>/dev/null | head -n3 >&2 || true
+      fi
+      printf '[suspend_with_rtc] wake in %ss (%s); systemctl suspend\n' "$secs" "$dev" >&2
+      systemctl suspend -i
+      ;;
+  esac
+  # If the user (or lid) resumes before the alarm fires, the RTC is still armed; clear after return.
+  sudo rtcwake "${rtc[@]}" -m disable 2>/dev/null || true
 }
 
 # ---------- main drain-bat function (stress 10m → rebuild → stress-until-threshold) ----------

@@ -8,7 +8,8 @@ fi
 USER_ORG=$1
 REPO=$2
 PR_NUM=$3
-BRANCH_NAME="testing-${REPO}-pr${PR_NUM}"
+CODE_NAME=${4:-noble}
+BRANCH_NAME="testing-${REPO}-pr${PR_NUM}_${CODE_NAME}"
 
 echo $BRANCH_NAME
 
